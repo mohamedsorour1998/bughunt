@@ -31,9 +31,12 @@ export async function GET(request: NextRequest) {
   if (game.status === "active") {
     const elapsed = Date.now() - game.createdAt
     if (elapsed > 120000 + 5000) {  // 5s grace period
-      await resolveGame(game.gameId)
-      // Re-fetch updated game
-      game = await getGame(gameId) ?? game
+      try {
+        await resolveGame(game.gameId)
+        game = await getGame(gameId) ?? game
+      } catch {
+        // Serve stale game state rather than 500 on transient failure
+      }
     }
   }
 
