@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:create": "npx tsx scripts/create-table.ts"
+    "db:create": "npx tsx scripts/create-table.ts",
+    "db:seed": "npx tsx scripts/seed-bugs.ts"
   },
   "dependencies": {
     "@auth/dynamodb-adapter": "^2.11.2",
