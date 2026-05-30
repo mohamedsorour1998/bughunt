@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from "uuid"
 import {
   getItem,
   putItem,
+  updateItem,
+  deleteItem,
   cacheGet,
   cacheSet,
   ddb,
@@ -33,6 +35,7 @@ export type Bug = {
 
 export type BugIndex = {
   bugIds: string[]
+  pendingBugIds: string[]
   byDifficulty: {
     "1": string[]
     "2": string[]
@@ -81,6 +84,7 @@ export async function getBugIndex(): Promise<BugIndex | null> {
 
   const index: BugIndex = {
     bugIds: (item.bugIds as string[]) ?? [],
+    pendingBugIds: (item.pendingBugIds as string[]) ?? [],
     byDifficulty: {
       "1": ((item.byDifficulty as Record<string, string[]>)?.["1"]) ?? [],
       "2": ((item.byDifficulty as Record<string, string[]>)?.["2"]) ?? [],
@@ -104,6 +108,7 @@ export async function putBugIndex(index: BugIndex): Promise<void> {
     pk: BUG_INDEX_PK,
     sk: BUG_INDEX_SK,
     bugIds: index.bugIds,
+    pendingBugIds: index.pendingBugIds,
     byDifficulty: index.byDifficulty,
   })
   cacheSet(BUG_INDEX_CACHE_KEY, index, BUG_INDEX_CACHE_TTL_MS)
@@ -273,6 +278,133 @@ export async function getBugForPractice(
   // Pick a uniformly random candidate (no Elo weighting in practice mode)
   const randomId = candidates[Math.floor(Math.random() * candidates.length)]
   return getBug(randomId)
+}
+
+// ---------------------------------------------------------------------------
+// createBug
+// ---------------------------------------------------------------------------
+
+/**
+ * Persist a new bug to DynamoDB and update BUG#INDEX.
+ * Bugs with status="active" are added to bugIds + byDifficulty.
+ * Bugs with status="pending_review" are added to pendingBugIds only.
+ */
+export async function createBug(
+  data: Omit<Bug, "bugId" | "timesServed" | "createdAt">
+): Promise<Bug> {
+  const bug = makeBug(data)
+
+  await putItem({
+    pk: `BUG#${bug.bugId}`,
+    sk: "META",
+    bugId: bug.bugId,
+    language: bug.language,
+    category: bug.category,
+    difficulty: bug.difficulty,
+    buggyCode: bug.buggyCode,
+    correctCode: bug.correctCode,
+    bugLine: bug.bugLine,
+    options: bug.options,
+    correctAnswer: bug.correctAnswer,
+    explanation: bug.explanation,
+    hint: bug.hint,
+    timesServed: bug.timesServed,
+    source: bug.source,
+    status: bug.status,
+    createdAt: bug.createdAt,
+  })
+
+  // Update index
+  const existing = await getBugIndex()
+  const index: BugIndex = existing ?? {
+    bugIds: [],
+    pendingBugIds: [],
+    byDifficulty: { "1": [], "2": [], "3": [], "4": [], "5": [] },
+  }
+
+  if (bug.status === "active") {
+    if (!index.bugIds.includes(bug.bugId)) {
+      index.bugIds.push(bug.bugId)
+    }
+    const key = String(bug.difficulty) as "1" | "2" | "3" | "4" | "5"
+    if (!index.byDifficulty[key].includes(bug.bugId)) {
+      index.byDifficulty[key].push(bug.bugId)
+    }
+  } else {
+    // pending_review
+    if (!index.pendingBugIds.includes(bug.bugId)) {
+      index.pendingBugIds.push(bug.bugId)
+    }
+  }
+
+  await putBugIndex(index)
+  return bug
+}
+
+// ---------------------------------------------------------------------------
+// approveBug
+// ---------------------------------------------------------------------------
+
+/**
+ * Move a pending_review bug to active:
+ * - Update status in DynamoDB
+ * - Move from pendingBugIds to bugIds + byDifficulty in index
+ */
+export async function approveBug(bugId: string): Promise<Bug | null> {
+  const bug = await getBug(bugId)
+  if (!bug) return null
+
+  await updateItem(`BUG#${bugId}`, "META", { status: "active" })
+
+  const existing = await getBugIndex()
+  const index: BugIndex = existing ?? {
+    bugIds: [],
+    pendingBugIds: [],
+    byDifficulty: { "1": [], "2": [], "3": [], "4": [], "5": [] },
+  }
+
+  index.pendingBugIds = index.pendingBugIds.filter((id) => id !== bugId)
+  if (!index.bugIds.includes(bugId)) index.bugIds.push(bugId)
+  const key = String(bug.difficulty) as "1" | "2" | "3" | "4" | "5"
+  if (!index.byDifficulty[key].includes(bugId)) index.byDifficulty[key].push(bugId)
+
+  await putBugIndex(index)
+  return { ...bug, status: "active" }
+}
+
+// ---------------------------------------------------------------------------
+// rejectBug
+// ---------------------------------------------------------------------------
+
+/**
+ * Permanently delete a pending_review bug and remove it from the index.
+ */
+export async function rejectBug(bugId: string): Promise<void> {
+  await deleteItem(`BUG#${bugId}`, "META")
+
+  const existing = await getBugIndex()
+  if (!existing) return
+
+  existing.pendingBugIds = existing.pendingBugIds.filter((id) => id !== bugId)
+  existing.bugIds = existing.bugIds.filter((id) => id !== bugId)
+  for (const key of ["1", "2", "3", "4", "5"] as const) {
+    existing.byDifficulty[key] = existing.byDifficulty[key].filter((id) => id !== bugId)
+  }
+
+  await putBugIndex(existing)
+}
+
+// ---------------------------------------------------------------------------
+// getPendingBugs
+// ---------------------------------------------------------------------------
+
+/** Fetch all bugs with status="pending_review". */
+export async function getPendingBugs(): Promise<Bug[]> {
+  const index = await getBugIndex()
+  if (!index || index.pendingBugIds.length === 0) return []
+
+  const bugs = await Promise.all(index.pendingBugIds.map((id) => getBug(id)))
+  return bugs.filter((b): b is Bug => b !== null)
 }
 
 // ---------------------------------------------------------------------------
