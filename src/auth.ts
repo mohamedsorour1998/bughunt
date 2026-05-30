@@ -14,7 +14,14 @@ const client = DynamoDBDocument.from(new DynamoDB(config), {
 })
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: DynamoDBAdapter(client, { tableName: "bughunt-main" }),
+  adapter: DynamoDBAdapter(client, {
+    tableName: "bughunt-main",
+    partitionKey: "pk",
+    sortKey: "sk",
+    indexName: "gsi1",
+    indexPartitionKey: "gsi1pk",
+    indexSortKey: "gsi1sk",
+  }),
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
