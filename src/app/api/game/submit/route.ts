@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     shouldResolve = true
   } else {
     const otherPlayerRecord = await getGamePlayer(gameId, otherId)
-    if (otherPlayerRecord?.submittedAt !== null && otherPlayerRecord !== null) {
+    if (otherPlayerRecord !== null && otherPlayerRecord.submittedAt !== null) {
       // Both have submitted
       shouldResolve = true
     } else if (now > game.createdAt + 120_000) {

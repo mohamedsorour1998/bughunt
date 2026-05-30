@@ -3,7 +3,8 @@ import { auth } from "@/auth"
 import { getUser } from "@/lib/users"
 import { getActiveGameForUser, createGame } from "@/lib/game"
 import { selectBugForGame } from "@/lib/bugs"
-import { putItem, deleteItem, queryItems } from "@/lib/dynamodb"
+import { ddb, TABLE_NAME, putItem, queryItems } from "@/lib/dynamodb"
+import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
 
 export async function POST() {
   const session = await auth()
@@ -97,14 +98,52 @@ export async function POST() {
       return queueUser(userId, elo, eloRange)
     }
 
-    // Create game
+    // Atomically claim the opponent's queue slot and create the game record.
+    // If another matchmaker already claimed this slot the transaction will
+    // throw TransactionCanceledException — we treat that as "no opponent" and
+    // fall through to queue the current user instead.
     const game = await createGame(userId, opponent.userId, bugForGame.bugId)
 
-    // Delete both queue entries
-    await Promise.all([
-      deleteItem(opponent.pk, opponent.sk),
-      // Also try to delete any self-entry (shouldn't exist since we checked activeGame but clean up anyway)
-    ])
+    try {
+      await ddb.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Delete: {
+                TableName: TABLE_NAME,
+                Key: { pk: opponent.pk, sk: opponent.sk },
+                ConditionExpression: "attribute_exists(pk)",
+              },
+            },
+            {
+              Put: {
+                TableName: TABLE_NAME,
+                Item: {
+                  pk: `GAME#${game.gameId}`,
+                  sk: "META",
+                  gameId: game.gameId,
+                  player1Id: userId,
+                  player2Id: opponent.userId,
+                  bugId: bugForGame.bugId,
+                  status: "active",
+                  createdAt: Date.now(),
+                },
+                ConditionExpression: "attribute_not_exists(pk)",
+              },
+            },
+          ],
+        })
+      )
+    } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        err.name === "TransactionCanceledException"
+      ) {
+        // Another matchmaker already claimed this opponent — join queue instead.
+        return queueUser(userId, elo, eloRange)
+      }
+      throw err
+    }
 
     // Update both users' bugsSeen arrays
     const newSelfBugsSeen = [...new Set([...userProfile.bugsSeen, bugForGame.bugId])]
