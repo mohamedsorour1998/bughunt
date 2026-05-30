@@ -300,9 +300,7 @@ export async function resolveGame(gameId: string): Promise<void> {
   // Write match history for player1
   // ---------------------------------------------------------------------------
   const p1Result: "win" | "loss" | "draw" = p1Won ? "win" : p1Drew ? "draw" : "loss"
-  await putItem({
-    pk: `USER#${game.player1Id}`,
-    sk: `GAME#${now}#${gameId}`,
+  const p1HistoryFields = {
     gameId,
     opponentId: game.player2Id ?? "bot",
     opponentName: p2Profile?.displayName ?? "Unknown",
@@ -312,6 +310,17 @@ export async function resolveGame(gameId: string): Promise<void> {
     eloChange: p1EloAfter - p1EloBefore,
     createdAt: now,
     expiresAt: Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000),
+  }
+  await putItem({
+    pk: `USER#${game.player1Id}`,
+    sk: `GAME#${now}#${gameId}`,
+    ...p1HistoryFields,
+  })
+  // Direct lookup item (no timestamp) for O(1) result page fetch
+  await putItem({
+    pk: `USER#${game.player1Id}`,
+    sk: `GAMEID#${gameId}`,
+    ...p1HistoryFields,
   })
 
   // ---------------------------------------------------------------------------
@@ -321,9 +330,7 @@ export async function resolveGame(gameId: string): Promise<void> {
     const p2Won = winnerId === game.player2Id
     const p2Drew = winnerId === null
     const p2Result: "win" | "loss" | "draw" = p2Won ? "win" : p2Drew ? "draw" : "loss"
-    await putItem({
-      pk: `USER#${game.player2Id}`,
-      sk: `GAME#${now}#${gameId}`,
+    const p2HistoryFields = {
       gameId,
       opponentId: game.player1Id,
       opponentName: p1Profile.displayName,
@@ -333,6 +340,17 @@ export async function resolveGame(gameId: string): Promise<void> {
       eloChange: p2EloAfter - p2EloBefore,
       createdAt: now,
       expiresAt: Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000),
+    }
+    await putItem({
+      pk: `USER#${game.player2Id}`,
+      sk: `GAME#${now}#${gameId}`,
+      ...p2HistoryFields,
+    })
+    // Direct lookup item (no timestamp) for O(1) result page fetch
+    await putItem({
+      pk: `USER#${game.player2Id}`,
+      sk: `GAMEID#${gameId}`,
+      ...p2HistoryFields,
     })
   }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getGame, getGamePlayer } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
-import { queryItems } from "@/lib/dynamodb"
+import { getItem } from "@/lib/dynamodb"
 
 export async function GET(
   _request: NextRequest,
@@ -73,16 +73,7 @@ export async function GET(
   } | null = null
 
   if (isCompleted) {
-    // Query USER#userId items with SK starting with GAME# and containing gameId
-    const { items } = await queryItems(
-      "pk = :pk AND begins_with(sk, :skPrefix)",
-      { ":pk": `USER#${userId}`, ":skPrefix": "GAME#" },
-      { limit: 50, scanIndexForward: false }
-    )
-    const histItem = items.find((item) => {
-      const sk = item.sk as string
-      return sk.includes(gameId)
-    })
+    const histItem = await getItem(`USER#${userId}`, `GAMEID#${game.gameId}`)
     if (histItem) {
       matchHistoryEntry = {
         result: histItem.result as string,
