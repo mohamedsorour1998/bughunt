@@ -78,10 +78,10 @@ export function LeaderboardTable({ players, currentUserId }: LeaderboardTablePro
               <TableHead className="text-white/50 text-xs uppercase tracking-wider">
                 Elo
               </TableHead>
-              <TableHead className="text-white/50 text-xs uppercase tracking-wider hidden sm:table-cell">
+              <TableHead className="text-white/50 text-xs uppercase tracking-wider hidden md:table-cell">
                 W / L
               </TableHead>
-              <TableHead className="text-white/50 text-xs uppercase tracking-wider hidden sm:table-cell">
+              <TableHead className="text-white/50 text-xs uppercase tracking-wider hidden md:table-cell">
                 Win%
               </TableHead>
               <TableHead className="text-white/50 text-xs uppercase tracking-wider">
@@ -128,10 +128,10 @@ export function LeaderboardTable({ players, currentUserId }: LeaderboardTablePro
                   <TableCell className="font-mono font-semibold text-white">
                     {player.elo}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell text-white/60 text-sm font-mono">
+                  <TableCell className="hidden md:table-cell text-white/60 text-sm font-mono">
                     {player.gamesWon} / {losses}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell text-white/60 text-sm">
+                  <TableCell className="hidden md:table-cell text-white/60 text-sm">
                     {player.winRate}%
                   </TableCell>
                   <TableCell>
