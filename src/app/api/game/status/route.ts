@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { getGame, getGamePlayer } from "@/lib/game"
+import { getGame, getGamePlayer, resolveGame } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 
 export async function GET(request: NextRequest) {
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing gameId" }, { status: 400 })
   }
 
-  const game = await getGame(gameId)
+  let game = await getGame(gameId)
   if (!game) {
     return NextResponse.json({ error: "Game not found" }, { status: 404 })
   }
@@ -25,6 +25,16 @@ export async function GET(request: NextRequest) {
   // Verify requesting user is a participant
   if (game.player1Id !== userId && game.player2Id !== userId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // Auto-resolve timed-out games
+  if (game.status === "active") {
+    const elapsed = Date.now() - game.createdAt
+    if (elapsed > 120000 + 5000) {  // 5s grace period
+      await resolveGame(game.gameId)
+      // Re-fetch updated game
+      game = await getGame(gameId) ?? game
+    }
   }
 
   // Get bug data if game is active or completed

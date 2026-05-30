@@ -29,6 +29,32 @@ export async function POST() {
   const elo = userProfile.elo
   const eloRange = Math.floor(elo / 200) * 200
 
+  // Remove any stale queue entries for this user across all elo ranges
+  // (prevents duplicate queue entries when elo changes between matchmake calls)
+  const allRanges = [
+    Math.max(0, eloRange - 400),
+    Math.max(0, eloRange - 200),
+    eloRange,
+    eloRange + 200,
+    eloRange + 400,
+  ]
+  const uniqueAllRanges = [...new Set(allRanges)]
+  await Promise.all(
+    uniqueAllRanges.map(async (range) => {
+      const { items } = await queryItems(
+        "pk = :pk",
+        { ":pk": `MATCH#QUEUE#${range}` }
+      )
+      for (const item of items) {
+        if ((item.userId as string) === userId) {
+          await import("@/lib/dynamodb").then(({ deleteItem }) =>
+            deleteItem(item.pk as string, item.sk as string)
+          )
+        }
+      }
+    })
+  )
+
   // Search adjacent elo ranges: eloRange-200, eloRange, eloRange+200
   const rangesToSearch = [
     Math.max(0, eloRange - 200),
