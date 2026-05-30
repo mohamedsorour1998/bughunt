@@ -5,6 +5,21 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
+// Achievement display names
+// ---------------------------------------------------------------------------
+
+const ACHIEVEMENT_NAMES: Record<string, string> = {
+  first_win: "First Win!",
+  games_10: "10 Games Played",
+  games_100: "100 Games Played",
+  streak_5: "5-Game Win Streak",
+  streak_10: "10-Game Win Streak",
+  elo_1400: "Reached Platinum",
+  elo_1600: "Reached Diamond",
+  elo_2000: "Reached Master",
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -44,6 +59,7 @@ interface GameResultProps {
   } | null
   eloChange: number
   newElo: number
+  newAchievements?: string[]
   onPlayAgain: () => void
 }
 
@@ -69,6 +85,7 @@ export function GameResult({
   opponentRecord,
   eloChange,
   newElo,
+  newAchievements,
   onPlayAgain,
 }: GameResultProps) {
   // Determine outcome
@@ -304,6 +321,27 @@ export function GameResult({
           <span className="text-xs text-white/40">was {eloBefore}</span>
         </div>
       </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* New Achievements                                                     */}
+      {/* ------------------------------------------------------------------ */}
+      {newAchievements && newAchievements.length > 0 && (
+        <div className="rounded-xl border border-yellow-500/40 bg-yellow-900/20 p-5">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-yellow-400">
+            🏆 New Achievements Unlocked!
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {newAchievements.map((achievement) => (
+              <span
+                key={achievement}
+                className="inline-flex items-center gap-1.5 rounded-full border border-yellow-500/40 bg-yellow-900/40 px-3 py-1 text-sm font-medium text-yellow-300"
+              >
+                🏅 {ACHIEVEMENT_NAMES[achievement] ?? achievement}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ------------------------------------------------------------------ */}
       {/* Play Again                                                           */}

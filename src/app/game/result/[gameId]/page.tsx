@@ -4,9 +4,21 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useParams } from "next/navigation"
 import { useSession } from "next-auth/react"
+import { toast } from "sonner"
 import { GameResult } from "@/components/game/GameResult"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+
+const ACHIEVEMENT_NAMES: Record<string, string> = {
+  first_win: "First Win!",
+  games_10: "10 Games Played",
+  games_100: "100 Games Played",
+  streak_5: "5-Game Win Streak",
+  streak_10: "10-Game Win Streak",
+  elo_1400: "Reached Platinum",
+  elo_1600: "Reached Diamond",
+  elo_2000: "Reached Master",
+}
 
 // ---------------------------------------------------------------------------
 // Types mirroring the API response
@@ -48,6 +60,7 @@ interface MatchHistoryEntry {
   eloBefore: number
   eloAfter: number
   eloChange: number
+  newAchievements?: string[]
 }
 
 interface GameDetailResponse {
@@ -119,6 +132,17 @@ export default function ResultPage() {
           return
         }
         setData(json)
+
+        // Fire achievement toasts with staggered delays
+        const achievements = json.matchHistoryEntry?.newAchievements ?? []
+        achievements.forEach((achievement, index) => {
+          setTimeout(() => {
+            toast.success(
+              `Achievement Unlocked: ${ACHIEVEMENT_NAMES[achievement] ?? achievement}`,
+              { icon: "🏆" }
+            )
+          }, index * 500)
+        })
       } catch {
         setError("error")
       } finally {
@@ -186,6 +210,8 @@ export default function ResultPage() {
     )
   }
 
+  const newAchievements = matchHistoryEntry?.newAchievements ?? []
+
   return (
     <main className="min-h-screen">
       <GameResult
@@ -202,6 +228,7 @@ export default function ResultPage() {
         opponentRecord={opponentRecord}
         eloChange={eloChange}
         newElo={newElo}
+        newAchievements={newAchievements}
         onPlayAgain={handlePlayAgain}
       />
     </main>

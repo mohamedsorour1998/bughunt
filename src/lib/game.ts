@@ -8,7 +8,7 @@ import {
   ddb,
   TABLE_NAME,
 } from "@/lib/dynamodb"
-import { getUser, updateUser, getRankFromElo } from "@/lib/users"
+import { getUser, updateUser, getRankFromElo, UserProfile } from "@/lib/users"
 import { getBug, markBugServed } from "@/lib/bugs"
 import { getCurrentSeason } from "@/lib/seasons"
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
@@ -37,6 +37,29 @@ export type GamePlayer = {
   correct: boolean | null
   submittedAt: number | null
   timeElapsedMs: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Achievement checking
+// ---------------------------------------------------------------------------
+
+function checkAchievements(
+  profile: UserProfile,
+  newProfile: { gamesPlayed: number; gamesWon: number; currentStreak: number; elo: number }
+): string[] {
+  const already = new Set(profile.achievementsUnlocked ?? [])
+  const newOnes: string[] = []
+
+  if (!already.has("first_win") && newProfile.gamesWon >= 1) newOnes.push("first_win")
+  if (!already.has("games_10") && newProfile.gamesPlayed >= 10) newOnes.push("games_10")
+  if (!already.has("games_100") && newProfile.gamesPlayed >= 100) newOnes.push("games_100")
+  if (!already.has("streak_5") && newProfile.currentStreak >= 5) newOnes.push("streak_5")
+  if (!already.has("streak_10") && newProfile.currentStreak >= 10) newOnes.push("streak_10")
+  if (!already.has("elo_1400") && newProfile.elo >= 1400) newOnes.push("elo_1400")
+  if (!already.has("elo_1600") && newProfile.elo >= 1600) newOnes.push("elo_1600")
+  if (!already.has("elo_2000") && newProfile.elo >= 2000) newOnes.push("elo_2000")
+
+  return newOnes
 }
 
 // ---------------------------------------------------------------------------
@@ -263,9 +286,21 @@ export async function resolveGame(gameId: string): Promise<void> {
   const p1Drew = winnerId === null
   const p1NewGamesPlayed = p1Profile.gamesPlayed + 1
   const p1NewGamesWon = p1Profile.gamesWon + (p1Won ? 1 : 0)
-  const p1NewStreak = p1Won ? p1Profile.currentStreak + 1 : 0
+  // Win: streak +1, Loss: streak reset to 0, Draw: streak unchanged
+  const p1NewStreak = p1Won
+    ? p1Profile.currentStreak + 1
+    : p1Drew
+    ? p1Profile.currentStreak
+    : 0
   const p1NewBestStreak = Math.max(p1Profile.bestStreak, p1NewStreak)
   const p1NewRank = getRankFromElo(p1EloAfter)
+
+  const p1NewAchievements = checkAchievements(p1Profile, {
+    gamesPlayed: p1NewGamesPlayed,
+    gamesWon: p1NewGamesWon,
+    currentStreak: p1NewStreak,
+    elo: p1EloAfter,
+  })
 
   await updateUser(game.player1Id, {
     elo: p1EloAfter,
@@ -274,18 +309,36 @@ export async function resolveGame(gameId: string): Promise<void> {
     gamesWon: p1NewGamesWon,
     currentStreak: p1NewStreak,
     bestStreak: p1NewBestStreak,
+    achievementsUnlocked: [
+      ...(p1Profile.achievementsUnlocked ?? []),
+      ...p1NewAchievements,
+    ],
   })
 
   // ---------------------------------------------------------------------------
   // Update player2 stats (if exists)
   // ---------------------------------------------------------------------------
+  let p2NewAchievements: string[] = []
   if (game.player2Id && p2Profile) {
     const p2Won = winnerId === game.player2Id
+    const p2Drew = winnerId === null
     const p2NewGamesPlayed = p2Profile.gamesPlayed + 1
     const p2NewGamesWon = p2Profile.gamesWon + (p2Won ? 1 : 0)
-    const p2NewStreak = p2Won ? p2Profile.currentStreak + 1 : 0
+    // Win: streak +1, Loss: streak reset to 0, Draw: streak unchanged
+    const p2NewStreak = p2Won
+      ? p2Profile.currentStreak + 1
+      : p2Drew
+      ? p2Profile.currentStreak
+      : 0
     const p2NewBestStreak = Math.max(p2Profile.bestStreak, p2NewStreak)
     const p2NewRank = getRankFromElo(p2EloAfter)
+
+    p2NewAchievements = checkAchievements(p2Profile, {
+      gamesPlayed: p2NewGamesPlayed,
+      gamesWon: p2NewGamesWon,
+      currentStreak: p2NewStreak,
+      elo: p2EloAfter,
+    })
 
     await updateUser(game.player2Id, {
       elo: p2EloAfter,
@@ -294,6 +347,10 @@ export async function resolveGame(gameId: string): Promise<void> {
       gamesWon: p2NewGamesWon,
       currentStreak: p2NewStreak,
       bestStreak: p2NewBestStreak,
+      achievementsUnlocked: [
+        ...(p2Profile.achievementsUnlocked ?? []),
+        ...p2NewAchievements,
+      ],
     })
   }
 
@@ -309,6 +366,7 @@ export async function resolveGame(gameId: string): Promise<void> {
     eloBefore: p1EloBefore,
     eloAfter: p1EloAfter,
     eloChange: p1EloAfter - p1EloBefore,
+    newAchievements: p1NewAchievements,
     createdAt: now,
     expiresAt: Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000),
   }
@@ -339,6 +397,7 @@ export async function resolveGame(gameId: string): Promise<void> {
       eloBefore: p2EloBefore,
       eloAfter: p2EloAfter,
       eloChange: p2EloAfter - p2EloBefore,
+      newAchievements: p2NewAchievements,
       createdAt: now,
       expiresAt: Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000),
     }

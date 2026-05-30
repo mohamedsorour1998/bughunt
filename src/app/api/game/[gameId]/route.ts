@@ -70,6 +70,7 @@ export async function GET(
     eloBefore: number
     eloAfter: number
     eloChange: number
+    newAchievements: string[]
   } | null = null
 
   if (isCompleted) {
@@ -80,6 +81,7 @@ export async function GET(
         eloBefore: histItem.eloBefore as number,
         eloAfter: histItem.eloAfter as number,
         eloChange: histItem.eloChange as number,
+        newAchievements: (histItem.newAchievements as string[]) ?? [],
       }
     }
   }
