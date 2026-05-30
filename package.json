@@ -15,6 +15,7 @@
     "test:api": "TEST_MODE=true npx tsx --tsconfig tsconfig.test.json --test tests/api/user.test.ts && TEST_MODE=true npx tsx --tsconfig tsconfig.test.json --test tests/api/game.test.ts && TEST_MODE=true npx tsx --tsconfig tsconfig.test.json --test tests/api/bugs.test.ts && TEST_MODE=true npx tsx --tsconfig tsconfig.test.json --test tests/api/leaderboard.test.ts && TEST_MODE=true npx tsx --tsconfig tsconfig.test.json --test tests/api/admin.test.ts",
     "test:e2e": "TEST_MODE=true npx playwright test",
     "test:e2e:ui": "TEST_MODE=true npx playwright test --ui",
+    "test": "npm run test:unit && npm run test:api",
     "load-test": "npx artillery run scripts/load-test.yml"
   },
   "dependencies": {

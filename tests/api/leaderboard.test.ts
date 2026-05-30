@@ -1,6 +1,8 @@
-import { test } from "node:test"
+import { test, after } from "node:test"
 import assert from "node:assert/strict"
 import { GET as getLeaderboard, getLeaderboardPlayers } from "../../src/app/api/leaderboard/route"
+
+after(() => { setImmediate(() => process.exit(0)) })
 
 test("GET /api/leaderboard returns 200 with players array", async () => {
   const req = new Request("http://localhost/api/leaderboard")

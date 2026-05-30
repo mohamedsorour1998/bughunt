@@ -1,8 +1,10 @@
-import { test } from "node:test"
+import { test, after } from "node:test"
 import assert from "node:assert/strict"
 import { GET as getRandom } from "../../src/app/api/bugs/random/route"
 
 if (process.env.TEST_MODE !== "true") throw new Error("TEST_MODE=true required")
+
+after(() => { setImmediate(() => process.exit(0)) })
 
 test("GET /api/bugs/random returns 200 with a bug", async () => {
   const req = new Request("http://localhost/api/bugs/random")
