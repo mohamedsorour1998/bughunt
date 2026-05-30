@@ -133,16 +133,20 @@ export default function ResultPage() {
         }
         setData(json)
 
-        // Fire achievement toasts with staggered delays
+        // Fire achievement toasts once per game (sessionStorage dedup)
         const achievements = json.matchHistoryEntry?.newAchievements ?? []
-        achievements.forEach((achievement, index) => {
-          setTimeout(() => {
-            toast.success(
-              `Achievement Unlocked: ${ACHIEVEMENT_NAMES[achievement] ?? achievement}`,
-              { icon: "🏆" }
-            )
-          }, index * 500)
-        })
+        const seenKey = `achievements-shown:${gameId}`
+        if (achievements.length > 0 && !sessionStorage.getItem(seenKey)) {
+          sessionStorage.setItem(seenKey, "1")
+          achievements.forEach((achievement, index) => {
+            setTimeout(() => {
+              toast.success(
+                `Achievement Unlocked: ${ACHIEVEMENT_NAMES[achievement] ?? achievement}`,
+                { icon: "🏆" }
+              )
+            }, index * 500)
+          })
+        }
       } catch {
         setError("error")
       } finally {
