@@ -1,3 +1,3 @@
-export function getStorageStatePath(userId: "user1" | "user2"): string {
+export function getStorageStatePath(userId: string): string {
   return `tests/helpers/.auth-${userId}.json`
 }
