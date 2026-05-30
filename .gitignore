@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright auth state and reports
+tests/helpers/.auth-*.json
+tests/results/
+playwright-report/
