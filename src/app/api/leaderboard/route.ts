@@ -1,7 +1,7 @@
 import { queryItems } from "@/lib/dynamodb"
-import { getRankFromElo } from "@/lib/users"
+import { getCurrentSeason } from "@/lib/seasons"
 
-export const revalidate = 60
+export const dynamic = "force-dynamic"
 
 export type LeaderboardPlayer = {
   rank: number
@@ -13,11 +13,11 @@ export type LeaderboardPlayer = {
   winRate: number
 }
 
-export async function getLeaderboardPlayers(): Promise<LeaderboardPlayer[]> {
+async function queryLeaderboard(pk: string): Promise<LeaderboardPlayer[]> {
   const { items } = await queryItems(
     "pk = :pk AND begins_with(sk, :skPrefix)",
     {
-      ":pk": "LEADERBOARD#GLOBAL",
+      ":pk": pk,
       ":skPrefix": "RANK#",
     },
     {
@@ -44,8 +44,26 @@ export async function getLeaderboardPlayers(): Promise<LeaderboardPlayer[]> {
   })
 }
 
-export async function GET() {
+export async function getLeaderboardPlayers(): Promise<LeaderboardPlayer[]> {
+  return queryLeaderboard("LEADERBOARD#GLOBAL")
+}
+
+export async function getSeasonLeaderboardPlayers(): Promise<LeaderboardPlayer[]> {
+  const season = await getCurrentSeason()
+  if (!season) return []
+  return queryLeaderboard(`LEADERBOARD#SEASON#${season.seasonId}`)
+}
+
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const seasonParam = searchParams.get("season")
+
+    if (seasonParam === "current") {
+      const players = await getSeasonLeaderboardPlayers()
+      return Response.json({ players })
+    }
+
     const players = await getLeaderboardPlayers()
     return Response.json({ players })
   } catch (err) {

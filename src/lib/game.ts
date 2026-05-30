@@ -10,6 +10,7 @@ import {
 } from "@/lib/dynamodb"
 import { getUser, updateUser, getRankFromElo } from "@/lib/users"
 import { getBug, markBugServed } from "@/lib/bugs"
+import { getCurrentSeason } from "@/lib/seasons"
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
 
 // ---------------------------------------------------------------------------
@@ -368,6 +369,22 @@ export async function resolveGame(gameId: string): Promise<void> {
   }
 
   // ---------------------------------------------------------------------------
+  // Update season leaderboard items (if an active season exists)
+  // ---------------------------------------------------------------------------
+  const activeSeason = await getCurrentSeason()
+  if (activeSeason) {
+    const seasonPk = `LEADERBOARD#SEASON#${activeSeason.seasonId}`
+    await updateSeasonLeaderboardEntry(seasonPk, game.player1Id, p1EloBefore, p1EloAfter, p1Profile.displayName, p1Profile.avatar, p1NewGamesPlayed, p1NewGamesWon)
+
+    if (game.player2Id && p2Profile) {
+      const p2Won = winnerId === game.player2Id
+      const p2NewGamesPlayed = p2Profile.gamesPlayed + 1
+      const p2NewGamesWon = p2Profile.gamesWon + (p2Won ? 1 : 0)
+      await updateSeasonLeaderboardEntry(seasonPk, game.player2Id, p2EloBefore, p2EloAfter, p2Profile.displayName, p2Profile.avatar, p2NewGamesPlayed, p2NewGamesWon)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Remove active-game GSI markers
   // ---------------------------------------------------------------------------
   await deleteItem(`GAME#${gameId}`, "META").catch(() => {/* ignore if already gone */})
@@ -419,6 +436,35 @@ async function updateLeaderboardEntry(
   const newKey = zeroPad(newElo) + "#" + userId
   await putItem({
     pk: "LEADERBOARD#GLOBAL",
+    sk: `RANK#${newKey}`,
+    userId,
+    elo: newElo,
+    displayName,
+    avatar,
+    gamesPlayed,
+    gamesWon,
+    updatedAt: Date.now(),
+  })
+}
+
+async function updateSeasonLeaderboardEntry(
+  seasonPk: string,
+  userId: string,
+  oldElo: number,
+  newElo: number,
+  displayName: string,
+  avatar: string | null,
+  gamesPlayed: number,
+  gamesWon: number
+): Promise<void> {
+  // Delete old entry
+  const oldKey = zeroPad(oldElo) + "#" + userId
+  await deleteItem(seasonPk, `RANK#${oldKey}`).catch(() => {/* ignore */})
+
+  // Write new entry
+  const newKey = zeroPad(newElo) + "#" + userId
+  await putItem({
+    pk: seasonPk,
     sk: `RANK#${newKey}`,
     userId,
     elo: newElo,
