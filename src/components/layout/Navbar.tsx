@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useSession } from "next-auth/react"
+import { signOut, useSession } from "next-auth/react"
 import { Bug, Menu, X } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { RankBadge } from "@/components/ui/RankBadge"
@@ -83,6 +83,12 @@ export function Navbar() {
                 </span>
               </div>
               <RankBadge rank={rank} size="sm" />
+              <button
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="text-xs text-white/50 hover:text-white transition-colors px-2 py-1 rounded hover:bg-white/10"
+              >
+                Sign out
+              </button>
             </div>
           ) : (
             <Link href="/login" className={cn(buttonVariants({ size: "sm" }))}>
@@ -125,18 +131,26 @@ export function Navbar() {
 
             <div className="mt-2 border-t border-white/10 pt-2">
               {session ? (
-                <div className="flex items-center gap-3 px-4 py-2">
-                  {user?.image && (
-                    <img
-                      src={user.image}
-                      alt={displayName}
-                      className="size-8 rounded-full border border-white/20"
-                    />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium text-white">{displayName}</p>
-                    <p className="text-xs text-white/50">{elo} Elo · {rank}</p>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-3 px-4 py-2">
+                    {user?.image && (
+                      <img
+                        src={user.image}
+                        alt={displayName}
+                        className="size-8 rounded-full border border-white/20"
+                      />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium text-white">{displayName}</p>
+                      <p className="text-xs text-white/50">{elo} Elo · {rank}</p>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => signOut({ callbackUrl: "/" })}
+                    className="px-4 py-2 text-sm text-left text-white/60 hover:text-white hover:bg-white/5 rounded-md transition-colors"
+                  >
+                    Sign out
+                  </button>
                 </div>
               ) : (
                 <Link
