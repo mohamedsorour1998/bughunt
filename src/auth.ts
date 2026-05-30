@@ -38,29 +38,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const ddb = DDC.from(
         new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-east-1" })
       )
-      await ddb.put({
-        TableName: "bughunt-main",
-        Item: {
-          pk: `USER#${user.id}`,
-          sk: "PROFILE",
-          gsi2pk: `EMAIL#${user.email}`,
-          gsi2sk: user.id!,
-          userId: user.id,
-          email: user.email,
-          displayName: user.name ?? user.email?.split("@")[0] ?? "Player",
-          avatar: user.image ?? null,
-          elo: 1200,
-          rank: "Gold",
-          gamesPlayed: 0,
-          gamesWon: 0,
-          currentStreak: 0,
-          bestStreak: 0,
-          bugsSeen: [],
-          achievementsUnlocked: [],
-          createdAt: Date.now(),
-        },
-        ConditionExpression: "attribute_not_exists(pk)",
-      })
+      try {
+        await ddb.put({
+          TableName: "bughunt-main",
+          Item: {
+            pk: `USER#${user.id}`,
+            sk: "PROFILE",
+            gsi2pk: `EMAIL#${user.email}`,
+            gsi2sk: user.id!,
+            userId: user.id,
+            email: user.email,
+            displayName: user.name ?? user.email?.split("@")[0] ?? "Player",
+            avatar: user.image ?? null,
+            elo: 1200,
+            rank: "Gold",
+            gamesPlayed: 0,
+            gamesWon: 0,
+            currentStreak: 0,
+            bestStreak: 0,
+            bugsSeen: [],
+            achievementsUnlocked: [],
+            createdAt: Date.now(),
+          },
+          ConditionExpression: "attribute_not_exists(pk)",
+        })
+      } catch (err: unknown) {
+        // ConditionalCheckFailedException = profile already exists (idempotent re-login), safe to ignore
+        if ((err as { name?: string }).name !== "ConditionalCheckFailedException") {
+          console.error("[auth] Failed to create user profile for", user.id, err)
+        }
+      }
     },
   },
 })
