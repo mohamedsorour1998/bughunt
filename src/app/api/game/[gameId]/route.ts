@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getGame, getGamePlayer } from "@/lib/game"
+import { getBug } from "@/lib/bugs"
+import { queryItems } from "@/lib/dynamodb"
 
 export async function GET(
   _request: NextRequest,
@@ -59,11 +61,45 @@ export async function GET(
 
   const isPlayer1 = game.player1Id === userId
 
+  // Fetch bug data (only revealed when game is completed)
+  const bugData = isCompleted ? await getBug(game.bugId) : null
+
+  // Fetch match history entry for this user if game is completed
+  let matchHistoryEntry: {
+    result: string
+    eloBefore: number
+    eloAfter: number
+    eloChange: number
+  } | null = null
+
+  if (isCompleted) {
+    // Query USER#userId items with SK starting with GAME# and containing gameId
+    const { items } = await queryItems(
+      "pk = :pk AND begins_with(sk, :skPrefix)",
+      { ":pk": `USER#${userId}`, ":skPrefix": "GAME#" },
+      { limit: 50, scanIndexForward: false }
+    )
+    const histItem = items.find((item) => {
+      const sk = item.sk as string
+      return sk.includes(gameId)
+    })
+    if (histItem) {
+      matchHistoryEntry = {
+        result: histItem.result as string,
+        eloBefore: histItem.eloBefore as number,
+        eloAfter: histItem.eloAfter as number,
+        eloChange: histItem.eloChange as number,
+      }
+    }
+  }
+
   return NextResponse.json({
     game,
+    bug: bugData,
     players: {
       player1: sanitizePlayer(p1Player, isPlayer1),
       player2: sanitizePlayer(p2Player, !isPlayer1),
     },
+    matchHistoryEntry,
   })
 }
