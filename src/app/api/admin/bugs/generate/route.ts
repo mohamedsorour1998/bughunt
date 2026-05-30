@@ -1,5 +1,5 @@
+import { safeAuth } from "@/lib/test-auth"
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { generateBug } from "@/lib/bedrock"
 import { createBug } from "@/lib/bugs"
 
@@ -10,7 +10,7 @@ function isAdmin(email: string | null | undefined): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth()
+  const session = await safeAuth()
   if (!session?.user?.email || !isAdmin(session.user.email)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

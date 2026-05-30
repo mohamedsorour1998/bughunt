@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { getUser } from "@/lib/users"
 import { getActiveGameForUser, createGame } from "@/lib/game"
 import { selectBugForGame } from "@/lib/bugs"
 import { ddb, TABLE_NAME, putItem, queryItems } from "@/lib/dynamodb"
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
-import { getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
+import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
 export async function POST(req: Request) {
-  const session = (await auth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
+  const session = (await safeAuth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }

@@ -100,7 +100,7 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
   const { items } = await queryItems(
     "gsi1pk = :pk",
     { ":pk": `ACTIVE_GAME#${userId}` },
-    { indexName: "GSI1" }
+    { indexName: "gsi1" }
   )
 
   if (items.length === 0) return null

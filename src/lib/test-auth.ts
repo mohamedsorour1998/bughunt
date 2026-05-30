@@ -1,4 +1,23 @@
 /**
+ * Safe wrapper around NextAuth's auth() that catches UntrustedHost and other
+ * initialization errors that NextAuth throws in test/local environments where
+ * AUTH_TRUST_HOST is not set. Returns null on failure so the TEST_MODE fallbacks
+ * can proceed.
+ */
+export async function safeAuth(): Promise<{ user: { id: string; email?: string | null; name?: string | null } } | null> {
+  try {
+    const { auth } = await import("@/auth")
+    const session = await auth()
+    // Validate that the session has a usable user id — auth() can return partial
+    // objects when NextAuth encounters config errors (UntrustedHost, MissingSecret).
+    if (!session?.user?.id) return null
+    return session as { user: { id: string; email?: string | null; name?: string | null } }
+  } catch {
+    return null
+  }
+}
+
+/**
  * TEST_MODE auth bypass — only active when process.env.TEST_MODE === "true".
  * API routes call this as a fallback when auth() returns null.
  * The x-test-user-id header is set only in test requests, never in production.

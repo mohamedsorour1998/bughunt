@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { getGame, getGamePlayer } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 import { getItem } from "@/lib/dynamodb"
-import { getTestSession } from "@/lib/test-auth"
+import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ gameId: string }> }
 ) {
-  const session = (await auth()) ?? getTestSession(request)
+  const session = (await safeAuth()) ?? getTestSession(request) ?? await getTestSessionFromCookies()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }

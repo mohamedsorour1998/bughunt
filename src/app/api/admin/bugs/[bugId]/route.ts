@@ -1,5 +1,5 @@
+import { safeAuth } from "@/lib/test-auth"
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { approveBug, rejectBug } from "@/lib/bugs"
 
 function isAdmin(email: string | null | undefined): boolean {
@@ -12,7 +12,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ bugId: string }> }
 ) {
-  const session = await auth()
+  const session = await safeAuth()
   if (!session?.user?.email || !isAdmin(session.user.email)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

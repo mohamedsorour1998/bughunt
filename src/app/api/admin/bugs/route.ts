@@ -1,5 +1,5 @@
+import { safeAuth } from "@/lib/test-auth"
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/auth"
 import { createBug, getPendingBugs } from "@/lib/bugs"
 import type { Bug } from "@/lib/bugs"
 
@@ -11,7 +11,7 @@ function isAdmin(email: string | null | undefined): boolean {
 
 // GET /api/admin/bugs — list pending_review bugs
 export async function GET() {
-  const session = await auth()
+  const session = await safeAuth()
   if (!session?.user?.email || !isAdmin(session.user.email)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -22,7 +22,7 @@ export async function GET() {
 
 // POST /api/admin/bugs — create a hand-crafted bug (goes straight to active)
 export async function POST(request: NextRequest) {
-  const session = await auth()
+  const session = await safeAuth()
   if (!session?.user?.email || !isAdmin(session.user.email)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

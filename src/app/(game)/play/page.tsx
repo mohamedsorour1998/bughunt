@@ -142,33 +142,6 @@ export default function PlayPage() {
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Matchmaking — start polling when entering matchmaking state
-  // ---------------------------------------------------------------------------
-
-  const startMatchmakingPolling = useCallback(
-    (id: string) => {
-      stopPolling()
-      pollRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/game/status?gameId=${id}`)
-          if (!res.ok) return
-          const data: StatusResponse = await res.json()
-          if (data.game?.status === "active") {
-            stopPolling()
-            setGameData(data.game)
-            setBugData(data.bug)
-            setPlayerRecord(data.player)
-            setPlayState("playing")
-          }
-        } catch {
-          // Network hiccup — will retry
-        }
-      }, 3000)
-    },
-    []
-  )
-
-  // ---------------------------------------------------------------------------
   // Gameplay polling — continues until game completes
   // ---------------------------------------------------------------------------
 
@@ -212,6 +185,40 @@ export default function PlayPage() {
   )
 
   // ---------------------------------------------------------------------------
+  // Matchmaking — start polling when entering matchmaking state
+  // ---------------------------------------------------------------------------
+
+  const startMatchmakingPolling = useCallback(
+    () => {
+      stopPolling()
+      pollRef.current = setInterval(async () => {
+        try {
+          // Re-call matchmake: the server returns the active game if one was
+          // created for us while we were queued, or keeps us in queue otherwise.
+          const res = await fetch("/api/game/matchmake", { method: "POST" })
+          if (!res.ok) return
+          const data = await res.json()
+          if (data.status === "active" && data.gameId) {
+            const statusRes = await fetch(`/api/game/status?gameId=${data.gameId}`)
+            if (!statusRes.ok) return
+            const statusData: StatusResponse = await statusRes.json()
+            stopPolling()
+            setGameId(data.gameId)
+            setGameData(statusData.game)
+            setBugData(statusData.bug)
+            setPlayerRecord(statusData.player)
+            setPlayState("playing")
+            startGameplayPolling(data.gameId)
+          }
+        } catch {
+          // Network hiccup — will retry
+        }
+      }, 3000)
+    },
+    [startGameplayPolling]
+  )
+
+  // ---------------------------------------------------------------------------
   // Handlers
   // ---------------------------------------------------------------------------
 
@@ -240,8 +247,7 @@ export default function PlayPage() {
         }
       } else {
         // Waiting in queue — start polling for a match
-        setGameId(id)
-        startMatchmakingPolling(id)
+        startMatchmakingPolling()
       }
     } catch (err) {
       stopPolling()
