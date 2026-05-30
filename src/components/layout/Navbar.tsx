@@ -18,7 +18,7 @@ const NAV_LINKS = [
 
 export function Navbar() {
   const pathname = usePathname()
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const user = session?.user as
@@ -63,7 +63,9 @@ export function Navbar() {
 
         {/* Right: Desktop user info or sign in */}
         <div className="hidden md:flex items-center gap-3">
-          {session ? (
+          {status === "loading" ? (
+            <div className="size-8 rounded-full bg-white/10 animate-pulse" />
+          ) : session ? (
             <div className="flex items-center gap-3">
               {user?.image && (
                 <img
