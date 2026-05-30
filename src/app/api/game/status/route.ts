@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getGame, getGamePlayer, resolveGame } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
+import { getTestSession } from "@/lib/test-auth"
 
 export async function GET(request: NextRequest) {
-  const session = await auth()
+  const session = (await auth()) ?? getTestSession(request)
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }

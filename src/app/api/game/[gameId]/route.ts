@@ -3,12 +3,13 @@ import { auth } from "@/auth"
 import { getGame, getGamePlayer } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 import { getItem } from "@/lib/dynamodb"
+import { getTestSession } from "@/lib/test-auth"
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ gameId: string }> }
 ) {
-  const session = await auth()
+  const session = (await auth()) ?? getTestSession(request)
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
