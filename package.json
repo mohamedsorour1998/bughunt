@@ -10,7 +10,8 @@
     "db:create": "npx tsx scripts/create-table.ts",
     "db:seed": "npx tsx scripts/seed-bugs.ts",
     "db:seed-season": "npx tsx scripts/seed-season.ts",
-    "test:elo": "npx tsx src/lib/__tests__/elo.test.ts"
+    "test:elo": "npx tsx src/lib/__tests__/elo.test.ts",
+    "load-test": "npx artillery run scripts/load-test.yml"
   },
   "dependencies": {
     "@auth/dynamodb-adapter": "^2.11.2",
@@ -18,6 +19,7 @@
     "@aws-sdk/client-dynamodb": "^3.1057.0",
     "@aws-sdk/lib-dynamodb": "^3.1057.0",
     "@base-ui/react": "^1.5.0",
+    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.17.0",

@@ -1,3 +1,13 @@
+/**
+ * DynamoDB client for bughunt-main table.
+ *
+ * Scale design:
+ * - On-demand capacity: auto-scales to millions of req/sec with zero provisioning
+ * - Single-table design: eliminates cross-table joins, keeps latency at single-digit ms
+ * - UUID partition keys: uniform hash distribution, no hot partitions
+ * - Global Tables: replicated to eu-west-1 for multi-region read/write
+ * - Per-instance in-memory cache: leaderboard/bugs cached per serverless function instance
+ */
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,

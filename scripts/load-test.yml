@@ -1,0 +1,42 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 10
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 50
+      name: "Sustained load"
+    - duration: 60
+      arrivalRate: 100
+      name: "Peak load"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "Matchmake flow"
+    weight: 70
+    flow:
+      - post:
+          url: "/api/game/matchmake"
+          json:
+            userId: "load-test-user-{{ $randomNumber(1, 1000) }}"
+          expect:
+            - statusCode: 401
+
+  - name: "Leaderboard read"
+    weight: 20
+    flow:
+      - get:
+          url: "/api/leaderboard"
+          expect:
+            - statusCode: 200
+
+  - name: "Bug random"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/bugs/random"
+          expect:
+            - statusCode: 200
