@@ -227,6 +227,55 @@ function itemToBug(item: Record<string, unknown>): Bug {
 }
 
 // ---------------------------------------------------------------------------
+// getBugForPractice
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick a random bug for practice mode.
+ *
+ * @param difficulty - If provided (1–5), restrict to that difficulty tier.
+ *                     If omitted, a random difficulty 1–5 is chosen.
+ * @param bugsSeen   - Optional list of bugIds already seen by the user.
+ *                     These are excluded from the candidate pool.
+ */
+export async function getBugForPractice(
+  difficulty?: number,
+  bugsSeen: string[] = []
+): Promise<Bug | null> {
+  const index = await getBugIndex()
+  if (!index) return null
+
+  const seenSet = new Set(bugsSeen)
+
+  let candidates: string[] = []
+
+  if (difficulty !== undefined && difficulty >= 1 && difficulty <= 5) {
+    // Use the requested difficulty tier
+    const key = String(difficulty) as "1" | "2" | "3" | "4" | "5"
+    candidates = (index.byDifficulty[key] ?? []).filter((id) => !seenSet.has(id))
+
+    // If no unseen bugs at this difficulty, fall back to all difficulties
+    if (candidates.length === 0) {
+      candidates = index.bugIds.filter((id) => !seenSet.has(id))
+    }
+  } else {
+    // No difficulty filter — pick from all unseen bugs
+    candidates = index.bugIds.filter((id) => !seenSet.has(id))
+
+    // If every bug has been seen, allow repeats
+    if (candidates.length === 0) {
+      candidates = [...index.bugIds]
+    }
+  }
+
+  if (candidates.length === 0) return null
+
+  // Pick a uniformly random candidate (no Elo weighting in practice mode)
+  const randomId = candidates[Math.floor(Math.random() * candidates.length)]
+  return getBug(randomId)
+}
+
+// ---------------------------------------------------------------------------
 // Exported utility: build a new Bug record (used by seed script)
 // ---------------------------------------------------------------------------
 

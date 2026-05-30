@@ -1,11 +1,12 @@
 /**
  * BugHunt — Seed Script
  *
- * Writes 20 hand-crafted bugs to DynamoDB and builds the BUG#INDEX item.
+ * Writes 50 hand-crafted bugs to DynamoDB and builds the BUG#INDEX item.
  * Idempotent: if the index already exists the script prints a message and
  * exits without re-writing the bugs.
  *
  * Run: npm run db:seed
+ * Force re-seed: npx tsx scripts/seed-bugs.ts --force
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
@@ -56,12 +57,14 @@ interface BugDef {
 }
 
 // ---------------------------------------------------------------------------
-// Bug definitions — 20 bugs across 5 languages
+// Bug definitions — 50 bugs across multiple languages
+// =========================================================================
+// ORIGINAL 20 bugs (IDs 1–20) + 30 new bugs (IDs 21–50)
 // ---------------------------------------------------------------------------
 
 const bugs: BugDef[] = [
   // =========================================================================
-  // PYTHON × 5
+  // PYTHON × 5  (original, IDs 1–5)
   // =========================================================================
 
   // 1. Python — off-by-one
@@ -246,7 +249,7 @@ print(counter())`,
   },
 
   // =========================================================================
-  // JAVASCRIPT × 5
+  // JAVASCRIPT × 5  (original, IDs 6–10)
   // =========================================================================
 
   // 6. JavaScript — type coercion
@@ -431,7 +434,7 @@ for (const key in nums) {
   },
 
   // =========================================================================
-  // TYPESCRIPT × 4
+  // TYPESCRIPT × 4  (original, IDs 11–14)
   // =========================================================================
 
   // 11. TypeScript — unsafe type assertion
@@ -598,7 +601,7 @@ saveStatus(Status.Active);`,
   },
 
   // =========================================================================
-  // SQL × 3
+  // SQL × 3  (original, IDs 15–17)
   // =========================================================================
 
   // 15. SQL — off-by-one in LIMIT / OFFSET pagination
@@ -695,7 +698,7 @@ GROUP BY c.id, c.name;`,
   },
 
   // =========================================================================
-  // GO × 3
+  // GO × 3  (original, IDs 18–20)
   // =========================================================================
 
   // 18. Go — nil pointer dereference
@@ -824,6 +827,1152 @@ fmt.Println(result)`,
     timesServed: 0,
     createdAt: Date.now(),
   },
+
+  // =========================================================================
+  // NEW BUGS — 30 more (IDs 21–50)
+  // =========================================================================
+
+  // -----------------------------------------------------------------------
+  // BASH × 7  (IDs 21–27)
+  // -----------------------------------------------------------------------
+
+  // 21. Bash — unquoted variable with spaces
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "quoting",
+    difficulty: 2,
+    buggyCode: `#!/bin/bash
+FILE="my document.txt"
+if [ -f $FILE ]; then
+    echo "File exists"
+fi`,
+    correctCode: `#!/bin/bash
+FILE="my document.txt"
+if [ -f "$FILE" ]; then
+    echo "File exists"
+fi`,
+    bugLine: 3,
+    options: [
+      "The -f flag is for directories, not files",
+      "Unquoted $FILE splits on whitespace; [ -f my document.txt ] is parsed as [ -f my ] with extra tokens, causing a syntax error",
+      "FILE should be declared with declare -r to prevent word splitting",
+      "[ ] must be replaced with [[ ]] when using variables",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Without quotes, bash performs word splitting on $FILE. 'my document.txt' splits into two tokens: 'my' and 'document.txt'. The test command [ -f my document.txt ] receives unexpected arguments and fails with 'too many arguments'. Always quote variable expansions: \"$FILE\".",
+    hint: "What happens to a variable containing spaces when it is not quoted in bash?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 22. Bash — arithmetic with let vs $(( ))
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "arithmetic",
+    difficulty: 3,
+    buggyCode: `#!/bin/bash
+x=5
+y=3
+result=$x-$y
+echo $result`,
+    correctCode: `#!/bin/bash
+x=5
+y=3
+result=$((x - y))
+echo $result`,
+    bugLine: 4,
+    options: [
+      "Bash variables cannot hold numeric values",
+      "result=$x-$y performs string concatenation, producing '5-3' not 2; arithmetic requires $(( ))",
+      "The echo statement needs -n to suppress the trailing newline",
+      "x and y must be declared with declare -i for integer arithmetic",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "In bash, variable assignment is always string concatenation unless you use arithmetic expansion. $x-$y simply concatenates the values and the literal '-', producing the string '5-3'. Use $((x - y)) (or let result=x-y) to perform integer arithmetic.",
+    hint: "How does bash interpret $x-$y in a variable assignment?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 23. Bash — test command string vs integer
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "test command",
+    difficulty: 3,
+    buggyCode: `#!/bin/bash
+count=10
+if [ $count > 5 ]; then
+    echo "Greater"
+fi`,
+    correctCode: `#!/bin/bash
+count=10
+if [ $count -gt 5 ]; then
+    echo "Greater"
+fi`,
+    bugLine: 3,
+    options: [
+      "The variable $count must be quoted inside [ ]",
+      "Inside [ ], the > operator is I/O redirection, not numeric comparison; use -gt for integers",
+      "Integers must be compared with (( )) not [ ]",
+      "The if statement is missing a semicolon before then",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Inside [ ], the > operator is treated as output redirection (it creates a file named '5'). The test effectively becomes [ $count ] which is true for any non-empty string. The correct numeric comparison operators are -gt, -lt, -ge, -le, -eq, -ne. Use (( count > 5 )) for C-style arithmetic comparisons.",
+    hint: "What does > mean inside single-bracket [ ] in bash?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 24. Bash — pipe subshell variable scope
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "subshell scope",
+    difficulty: 4,
+    buggyCode: `#!/bin/bash
+count=0
+cat file.txt | while read line; do
+    count=$((count + 1))
+done
+echo "Lines: $count"`,
+    correctCode: `#!/bin/bash
+count=0
+while read line; do
+    count=$((count + 1))
+done < file.txt
+echo "Lines: $count"`,
+    bugLine: 3,
+    options: [
+      "while read without IFS= will strip leading whitespace from lines",
+      "The pipe creates a subshell for the while loop; modifications to $count inside the loop are invisible to the parent shell",
+      "cat file.txt | while is slower than < redirection but produces the same result",
+      "count=$((count + 1)) requires spaces around the variable name",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Each component of a pipeline (in bash) runs in a subshell. The while loop modifying $count operates on a copy of the variable; when the subshell exits the change is lost. The parent shell's $count remains 0. Redirecting stdin with < file.txt keeps the while loop in the current shell, so the count update is visible.",
+    hint: "Does the right side of a pipe in bash run in the same shell process as the parent?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 25. Bash — glob expansion in array
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "glob expansion",
+    difficulty: 3,
+    buggyCode: `#!/bin/bash
+files="*.log"
+for f in $files; do
+    rm "$f"
+done`,
+    correctCode: `#!/bin/bash
+for f in *.log; do
+    rm "$f"
+done`,
+    bugLine: 2,
+    options: [
+      "rm requires the -f flag to delete files",
+      "Storing a glob pattern in a quoted variable prevents expansion; the literal string '*.log' is used rather than matching files",
+      "The for loop must use $(ls *.log) to expand glob patterns",
+      "Variables holding filenames should always be declared with declare -a",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "When a glob like *.log is assigned to a variable with quotes, it is stored as the literal string '*.log'. When that variable is expanded unquoted in the for loop ($files), bash checks for files matching '*.log' — which may work, but if no files match, the literal string is passed to rm, causing an error. The idiomatic and safe approach is to use the glob directly in the for statement.",
+    hint: "Does assigning '*.log' to a variable and then expanding it behave the same as using the glob directly?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 26. Bash — script exit on first error
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "error handling",
+    difficulty: 3,
+    buggyCode: `#!/bin/bash
+cd /tmp/work_dir
+rm -rf important_data/
+echo "Cleanup done"`,
+    correctCode: `#!/bin/bash
+set -euo pipefail
+cd /tmp/work_dir
+rm -rf important_data/
+echo "Cleanup done"`,
+    bugLine: 2,
+    options: [
+      "rm -rf should always use the --preserve-root flag",
+      "If 'cd /tmp/work_dir' fails (directory doesn't exist), the script continues and 'rm -rf important_data/' runs in the current directory",
+      "echo should be replaced with printf for POSIX compliance",
+      "The script needs a trap to handle SIGINT",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Without 'set -e', a failed command does not stop the script. If /tmp/work_dir does not exist, cd fails but the script continues. Then 'rm -rf important_data/' runs in whatever directory the script started in — potentially deleting data you didn't intend to touch. 'set -euo pipefail' makes the script abort on any error, unset variable, or pipe failure.",
+    hint: "What happens in a bash script when a command fails but 'set -e' is not set?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 27. Bash — command substitution trailing newline
+  {
+    bugId: uuidv4(),
+    language: "bash",
+    category: "command substitution",
+    difficulty: 2,
+    buggyCode: `#!/bin/bash
+content=$(cat config.txt)
+if [ "$content" = "" ]; then
+    echo "Config is empty"
+fi`,
+    correctCode: `#!/bin/bash
+content=$(cat config.txt)
+if [ -z "$content" ]; then
+    echo "Config is empty"
+fi`,
+    bugLine: 3,
+    options: [
+      "cat config.txt should be replaced with < config.txt for efficiency",
+      "Command substitution $() strips trailing newlines, so a file containing only newlines tests as empty; -z is the correct empty-string test",
+      "The [ ] condition must use == instead of = for string comparison",
+      "The variable $content should be unquoted when comparing to an empty string",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Command substitution $() automatically strips all trailing newlines from the output. A file containing only whitespace or newlines will produce an empty string in $content. Comparing with = \"\" works, but the canonical and most readable test for an empty string in bash is -z. More importantly, a file with content but a trailing newline is NOT empty — the comparison with \"\" is correct for that case too, but -z makes intent clearer.",
+    hint: "What does $() do to trailing newlines in command output?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // -----------------------------------------------------------------------
+  // TYPESCRIPT × 8  (IDs 28–35)
+  // -----------------------------------------------------------------------
+
+  // 28. TypeScript — decorator metadata ordering
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "decorators",
+    difficulty: 5,
+    buggyCode: `function Log(target: any, key: string, descriptor: PropertyDescriptor) {
+  const original = descriptor.value;
+  descriptor.value = function(...args: any[]) {
+    console.log(\`Calling \${key}\`);
+    return original.apply(this, args);
+  };
+  return descriptor;
+}
+
+function Memoize(target: any, key: string, descriptor: PropertyDescriptor) {
+  const cache = new Map();
+  const original = descriptor.value;
+  descriptor.value = function(...args: any[]) {
+    const cacheKey = JSON.stringify(args);
+    if (cache.has(cacheKey)) return cache.get(cacheKey);
+    const result = original.apply(this, args);
+    cache.set(cacheKey, result);
+    return result;
+  };
+  return descriptor;
+}
+
+class Calculator {
+  @Log
+  @Memoize
+  compute(n: number): number {
+    return n * n;
+  }
+}`,
+    correctCode: `class Calculator {
+  @Memoize
+  @Log
+  compute(n: number): number {
+    return n * n;
+  }
+}`,
+    bugLine: 23,
+    options: [
+      "Decorators cannot be stacked on a single method in TypeScript",
+      "Decorators apply bottom-up: @Memoize runs first, then @Log wraps it. With @Log on top, Log wraps Memoize — so every call logs even when a cached result is returned",
+      "The descriptor.value replacement in Log must call new.target instead of this",
+      "Memoize needs the reflect-metadata package to access parameter types",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "TypeScript method decorators are applied from bottom to top (innermost first). With @Log above @Memoize, @Memoize is applied first (wraps the original), then @Log wraps the memoized version. Every call to compute() goes through Log — even cache hits — which logs 'Calling compute' needlessly. Swapping the order so @Memoize is on top means Log is the outer wrapper and Memoize is inner; Log fires on every call, Memoize short-circuits inside.",
+    hint: "In what order are stacked method decorators applied in TypeScript?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 29. TypeScript — mapped type readonly trap
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "mapped types",
+    difficulty: 4,
+    buggyCode: `type DeepReadonly<T> = {
+  readonly [K in keyof T]: T[K];
+};
+
+interface Config {
+  server: { host: string; port: number };
+  debug: boolean;
+}
+
+const cfg: DeepReadonly<Config> = {
+  server: { host: "localhost", port: 3000 },
+  debug: false,
+};
+
+cfg.server.port = 8080; // Should this be allowed?`,
+    correctCode: `type DeepReadonly<T> = {
+  readonly [K in keyof T]: T[K] extends object ? DeepReadonly<T[K]> : T[K];
+};`,
+    bugLine: 3,
+    options: [
+      "readonly properties cannot be used inside mapped types",
+      "The mapped type marks top-level properties readonly but nested objects remain mutable; cfg.server.port can still be reassigned",
+      "DeepReadonly requires the infer keyword to recurse into nested types",
+      "TypeScript does not support recursive mapped types",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "The mapped type makes T's own keys readonly, but the value types T[K] are unchanged. For cfg.server, the server property itself is readonly (can't reassign cfg.server), but the object it points to is a plain mutable { host: string; port: number }. Therefore cfg.server.port = 8080 compiles without error. True deep readonly requires recursing into object-valued properties.",
+    hint: "Does marking a property readonly also make the object it references readonly?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 30. TypeScript — conditional type distributivity
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "conditional types",
+    difficulty: 5,
+    buggyCode: `type IsString<T> = T extends string ? true : false;
+
+type Result = IsString<string | number>; // Expected: false`,
+    correctCode: `type IsString<T> = [T] extends [string] ? true : false;
+
+type Result = IsString<string | number>; // Now: false`,
+    bugLine: 1,
+    options: [
+      "Conditional types cannot use union types as type arguments",
+      "Bare conditional types distribute over unions: IsString<string | number> becomes (IsString<string> | IsString<number>) = true | false = boolean, not false",
+      "The extends keyword in a conditional type requires a constraint, not a type",
+      "string | number needs to be wrapped in a tuple before using extends",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "When a generic conditional type T extends U ? X : Y is applied to a union type, TypeScript distributes the conditional over each union member. IsString<string | number> becomes IsString<string> | IsString<number> = true | false = boolean — not the simple false you might expect. Wrapping in a tuple ([T] extends [string]) prevents distribution and checks the union as a whole.",
+    hint: "What does TypeScript do when a conditional type is applied to a union type argument?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 31. TypeScript — type predicate narrowing bug
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "type predicates",
+    difficulty: 4,
+    buggyCode: `interface Cat { meow(): void }
+interface Dog { bark(): void }
+
+function isCat(animal: Cat | Dog): boolean {
+  return (animal as Cat).meow !== undefined;
+}
+
+function makeNoise(animal: Cat | Dog) {
+  if (isCat(animal)) {
+    animal.meow(); // TypeScript still sees Cat | Dog here
+  }
+}`,
+    correctCode: `function isCat(animal: Cat | Dog): animal is Cat {
+  return typeof (animal as Cat).meow === "function";
+}`,
+    bugLine: 4,
+    options: [
+      "Type guards must use instanceof instead of property checks",
+      "Returning boolean instead of 'animal is Cat' means TypeScript does not narrow the type inside the if block; animal remains Cat | Dog",
+      "The cast (animal as Cat) bypasses the type system and will crash at runtime",
+      "isCat must be a method on a class, not a standalone function",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "A function returning plain boolean is just a boolean check — TypeScript does not use it to narrow the type at the call site. To tell TypeScript 'if this returns true, the argument is of type Cat', the return type must be a type predicate: 'animal is Cat'. Without it, inside the if block TypeScript still sees 'Cat | Dog' and calling animal.meow() is a type error.",
+    hint: "What return type annotation tells TypeScript to narrow a union type when a guard function returns true?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 32. TypeScript — function overload implementation signature
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "overloads",
+    difficulty: 4,
+    buggyCode: `function format(value: string): string;
+function format(value: number): string;
+function format(value: string | number): string {
+  if (typeof value === "string") return value.toUpperCase();
+  return value.toFixed(2);
+}
+
+const fn: (x: string | number) => string = format;`,
+    correctCode: `function format(value: string): string;
+function format(value: number): string;
+function format(value: string | number): string {
+  if (typeof value === "string") return value.toUpperCase();
+  return value.toFixed(2);
+}
+
+// Correct: call with a specific overload signature
+const result = format("hello" as string);`,
+    bugLine: 8,
+    options: [
+      "Overloaded functions cannot be assigned to variables in TypeScript",
+      "The implementation signature (string | number) is not part of the public type; assigning to a variable typed as (string | number) => string fails because that signature is not among the overloads",
+      "toFixed() is not available on the number type in TypeScript",
+      "Overload signatures must use interface syntax, not function declarations",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "In TypeScript, the implementation signature of an overloaded function is hidden from external callers — only the overload signatures are public. The public type of 'format' is the union of its overloads: ((x: string) => string) & ((x: number) => string). Assigning it to a variable typed as (x: string | number) => string fails because 'string | number' is not one of the declared overloads. Callers must use one of the specific overload types.",
+    hint: "Is the implementation signature of an overloaded function visible to callers in TypeScript?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 33. TypeScript — template literal type inference
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "template literals",
+    difficulty: 4,
+    buggyCode: `type EventName = "click" | "focus" | "blur";
+type Handler = \`on\${EventName}\`;
+
+function on(event: Handler, cb: () => void) {}
+
+on("onclick", () => {});  // Should this compile?`,
+    correctCode: `on("onClick", () => {});  // Correct: camelCase`,
+    bugLine: 6,
+    options: [
+      "Template literal types only work with string literals, not union types",
+      "'onclick' is not in the Handler type; template literals are case-sensitive and produce 'onClick', 'onFocus', 'onBlur' — not lowercase versions",
+      "The on() function should accept a generic parameter instead of a mapped type",
+      "Template literal types require the --strictTemplateTypes compiler flag",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Template literal types are purely structural string concatenation. `on${EventName}` produces the union 'onClick' | 'onFocus' | 'onBlur' — all with the original casing of EventName preserved. Passing 'onclick' (all lowercase) fails because it is not a member of the Handler union. The compiler enforces exact string matching.",
+    hint: "Do TypeScript template literal types alter the casing of the interpolated type?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 34. TypeScript — assertion function typing
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "assertion functions",
+    difficulty: 5,
+    buggyCode: `function assertDefined<T>(val: T | null | undefined): void {
+  if (val === null || val === undefined) {
+    throw new Error("Value is not defined");
+  }
+}
+
+function processUser(user: User | null) {
+  assertDefined(user);
+  user.name; // TypeScript: user is still User | null here
+}`,
+    correctCode: `function assertDefined<T>(val: T | null | undefined): asserts val is T {
+  if (val === null || val === undefined) {
+    throw new Error("Value is not defined");
+  }
+}`,
+    bugLine: 1,
+    options: [
+      "Assertion functions must throw a specific AssertionError subclass",
+      "The return type must be 'asserts val is T'; returning void does not tell TypeScript that val is narrowed after the call",
+      "Generic assertion functions require the Exclude utility type to remove null",
+      "assertDefined must be inlined — TypeScript cannot narrow across function call boundaries",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "A plain void return type tells TypeScript nothing about the state of val after the function returns. TypeScript 3.7 introduced assertion function signatures: 'asserts val is T'. This tells the compiler that if assertDefined returns normally (without throwing), val is definitely T — narrowing subsequent references automatically. Without it, user remains User | null after the call.",
+    hint: "What return type annotation enables TypeScript to narrow a type after a throwing guard function returns?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 35. TypeScript — narrowing failure with type alias
+  {
+    bugId: uuidv4(),
+    language: "typescript",
+    category: "narrowing failures",
+    difficulty: 4,
+    buggyCode: `type StringOrNumber = string | number;
+
+function double(x: StringOrNumber): StringOrNumber {
+  if (typeof x === "string") {
+    return x.repeat(2);
+  }
+  return x * 2;
+}
+
+let val: StringOrNumber = Math.random() > 0.5 ? "hi" : 42;
+if (typeof val === "string") {
+  val.toUpperCase();
+}
+val.toUpperCase(); // Is this a type error?`,
+    correctCode: `// After the if block, val reverts to StringOrNumber (string | number).
+// val.toUpperCase() outside the if block IS a type error.
+// TypeScript narrowing only applies within the narrowed scope.`,
+    bugLine: 14,
+    options: [
+      "TypeScript does not narrow type aliases, only inline union types",
+      "After the if block, control flow analysis widens val back to StringOrNumber; calling toUpperCase() outside the narrowed block is a type error",
+      "typeof checks only work with primitive types declared directly, not via type aliases",
+      "val must be re-assigned after the if block to preserve the narrowed type",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "TypeScript's control-flow narrowing is scoped. Inside 'if (typeof val === \"string\") { }', val is narrowed to string. Outside the block (line 14), TypeScript widens val back to StringOrNumber (string | number) because val could have entered via the else path. Calling val.toUpperCase() at line 14 is a compile-time type error. The narrowing only holds within the block where the check is in scope.",
+    hint: "How long does TypeScript's control-flow narrowing last after an if block ends?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // -----------------------------------------------------------------------
+  // SQL × 5  (IDs 36–40)
+  // -----------------------------------------------------------------------
+
+  // 36. SQL — GROUP BY without aggregate
+  {
+    bugId: uuidv4(),
+    language: "sql",
+    category: "GROUP BY",
+    difficulty: 3,
+    buggyCode: `SELECT department, name, MAX(salary) AS top_salary
+FROM employees
+GROUP BY department;`,
+    correctCode: `SELECT department, MAX(salary) AS top_salary
+FROM employees
+GROUP BY department;`,
+    bugLine: 1,
+    options: [
+      "MAX() cannot be used with GROUP BY in standard SQL",
+      "Non-aggregated column 'name' is not in the GROUP BY clause; the query will fail or return an arbitrary name per department",
+      "The GROUP BY clause should list all SELECT columns including MAX(salary)",
+      "department must be cast to TEXT before grouping",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "In standard SQL, every column in the SELECT list must either be in the GROUP BY clause or wrapped in an aggregate function. 'name' is neither. In MySQL with ONLY_FULL_GROUP_BY disabled this returns an arbitrary name; in PostgreSQL and most strict databases this is an error. Remove 'name' from SELECT, or add it to GROUP BY if the intent is to group by (department, name).",
+    hint: "What rule governs which columns can appear in the SELECT list when using GROUP BY?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 37. SQL — HAVING vs WHERE
+  {
+    bugId: uuidv4(),
+    language: "sql",
+    category: "HAVING",
+    difficulty: 3,
+    buggyCode: `SELECT department, COUNT(*) AS headcount
+FROM employees
+WHERE headcount > 10
+GROUP BY department;`,
+    correctCode: `SELECT department, COUNT(*) AS headcount
+FROM employees
+GROUP BY department
+HAVING COUNT(*) > 10;`,
+    bugLine: 3,
+    options: [
+      "COUNT(*) should be COUNT(id) for accuracy",
+      "WHERE is evaluated before GROUP BY so 'headcount' alias does not exist yet; aggregates must be filtered with HAVING",
+      "The WHERE clause cannot reference column aliases in any SQL dialect",
+      "HAVING and WHERE can be used interchangeably for aggregate conditions",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "SQL evaluates clauses in this logical order: FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY. The WHERE clause filters individual rows before grouping. The alias 'headcount' and the aggregate COUNT(*) do not exist at the WHERE stage. HAVING is designed for post-aggregation filtering and is evaluated after GROUP BY.",
+    hint: "At which stage of SQL evaluation does WHERE filter rows, relative to GROUP BY?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 38. SQL — window function PARTITION BY bug
+  {
+    bugId: uuidv4(),
+    language: "sql",
+    category: "window functions",
+    difficulty: 4,
+    buggyCode: `SELECT
+  employee_id,
+  department,
+  salary,
+  RANK() OVER (ORDER BY salary DESC) AS dept_rank
+FROM employees;`,
+    correctCode: `SELECT
+  employee_id,
+  department,
+  salary,
+  RANK() OVER (PARTITION BY department ORDER BY salary DESC) AS dept_rank
+FROM employees;`,
+    bugLine: 5,
+    options: [
+      "RANK() requires a ROWS BETWEEN frame clause",
+      "Missing PARTITION BY department; the RANK() is computed globally across all departments, not within each department",
+      "ORDER BY inside OVER() is not supported in all SQL dialects",
+      "dept_rank will be NULL when two employees have the same salary",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Without PARTITION BY, the window function operates over the entire result set as a single partition. RANK() will rank all employees globally by salary, not within their department. Adding 'PARTITION BY department' restarts the ranking for each department, which is the typical intent for a 'rank within group' query.",
+    hint: "What does PARTITION BY do in a window function, and what happens when it is omitted?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 39. SQL — correlated subquery performance trap
+  {
+    bugId: uuidv4(),
+    language: "sql",
+    category: "subquery correlation",
+    difficulty: 4,
+    buggyCode: `SELECT e.name, e.salary
+FROM employees e
+WHERE e.salary > (
+  SELECT AVG(salary)
+  FROM employees
+  WHERE department = e.department
+);`,
+    correctCode: `SELECT e.name, e.salary
+FROM employees e
+JOIN (
+  SELECT department, AVG(salary) AS avg_sal
+  FROM employees
+  GROUP BY department
+) dept_avg ON e.department = dept_avg.department
+WHERE e.salary > dept_avg.avg_sal;`,
+    bugLine: 3,
+    options: [
+      "AVG() cannot be used in a correlated subquery",
+      "The correlated subquery re-executes for every row in the outer query; for large tables this is O(n²) — a derived table or CTE computes AVG once per department",
+      "WHERE inside a subquery cannot reference the outer query's alias",
+      "The subquery must be in the FROM clause, not the WHERE clause",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "The subquery references e.department from the outer query, making it correlated. The database must re-execute the subquery once per row in the employees table to compute the department average. For 10,000 employees in 50 departments, that is 10,000 executions instead of 50. Rewriting with a derived table or CTE computes each department average once, drastically improving performance.",
+    hint: "How many times does a correlated subquery execute relative to the outer query's row count?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 40. SQL — UNION vs UNION ALL duplicates
+  {
+    bugId: uuidv4(),
+    language: "sql",
+    category: "UNION vs UNION ALL",
+    difficulty: 3,
+    buggyCode: `-- Get all active user IDs from two regional shards
+SELECT user_id FROM users_us WHERE active = 1
+UNION
+SELECT user_id FROM users_eu WHERE active = 1;`,
+    correctCode: `SELECT user_id FROM users_us WHERE active = 1
+UNION ALL
+SELECT user_id FROM users_eu WHERE active = 1;`,
+    bugLine: 3,
+    options: [
+      "UNION requires both queries to have the same number of columns",
+      "UNION performs an implicit DISTINCT, silently removing users who appear in both shards; UNION ALL preserves all rows including duplicates",
+      "UNION cannot be used with a WHERE clause in either sub-select",
+      "UNION ALL is only valid when the two result sets have no overlapping rows",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "UNION removes duplicate rows from the combined result (equivalent to applying DISTINCT). If a user_id exists in both users_us and users_eu (e.g. a user who moved regions), that row will appear only once, silently losing the duplicate. UNION ALL keeps all rows from both queries without deduplication. For a simple merge of two shards where you want every record, UNION ALL is usually correct and also faster (no sort/hash dedup step).",
+    hint: "What extra operation does UNION perform compared to UNION ALL?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // -----------------------------------------------------------------------
+  // GO × 5  (IDs 41–45)
+  // -----------------------------------------------------------------------
+
+  // 41. Go — defer in loop
+  {
+    bugId: uuidv4(),
+    language: "go",
+    category: "defer in loop",
+    difficulty: 4,
+    buggyCode: `func processFiles(paths []string) error {
+    for _, path := range paths {
+        f, err := os.Open(path)
+        if err != nil {
+            return err
+        }
+        defer f.Close()
+        // process f...
+    }
+    return nil
+}`,
+    correctCode: `func processFiles(paths []string) error {
+    for _, path := range paths {
+        if err := processOne(path); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+func processOne(path string) error {
+    f, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+    // process f...
+    return nil
+}`,
+    bugLine: 6,
+    options: [
+      "defer cannot be used inside a for loop in Go",
+      "defer runs when the enclosing function returns, not at the end of each loop iteration; all file handles accumulate open until processFiles exits",
+      "os.Open requires the defer to specify the error from f.Close()",
+      "range loops in Go do not support defer because the loop variable is reused",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "defer is function-scoped, not block-scoped. Every defer f.Close() in the loop registers a deferred call that runs when processFiles() returns — not at the end of each iteration. For 1000 files, 1000 file handles are opened before any are closed, potentially exhausting OS file descriptors. The fix is to extract the per-file work into a separate function where defer runs at end of each call.",
+    hint: "When exactly does a deferred function call execute in Go?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 42. Go — map concurrent read/write race
+  {
+    bugId: uuidv4(),
+    language: "go",
+    category: "map race condition",
+    difficulty: 5,
+    buggyCode: `var cache = make(map[string]int)
+
+func increment(key string) {
+    go func() {
+        cache[key]++
+    }()
+}`,
+    correctCode: `var (
+    cache = make(map[string]int)
+    mu    sync.Mutex
+)
+
+func increment(key string) {
+    go func() {
+        mu.Lock()
+        cache[key]++
+        mu.Unlock()
+    }()
+}`,
+    bugLine: 4,
+    options: [
+      "Maps in Go must be initialised with a capacity hint to be goroutine-safe",
+      "Concurrent reads and writes to a Go map without synchronisation cause a fatal runtime panic ('concurrent map read and map write')",
+      "The goroutine captures key by value, causing all goroutines to use the same key",
+      "make(map[string]int) without a size hint is not safe for concurrent use",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Go maps are explicitly not safe for concurrent use. Simultaneous reads and writes (or two concurrent writes) trigger a fatal runtime error: 'concurrent map read and map write'. This is not a data race that silently returns wrong results — it crashes the program. Use a sync.Mutex (or sync.RWMutex for read-heavy workloads) or a sync.Map for concurrent access.",
+    hint: "Are Go maps safe to read and write from multiple goroutines simultaneously?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 43. Go — interface nil trap
+  {
+    bugId: uuidv4(),
+    language: "go",
+    category: "interface nil trap",
+    difficulty: 5,
+    buggyCode: `type MyError struct{ msg string }
+func (e *MyError) Error() string { return e.msg }
+
+func mayFail() error {
+    var err *MyError = nil
+    // ... some logic that might set err ...
+    return err
+}
+
+func main() {
+    if mayFail() != nil {
+        fmt.Println("got error")
+    }
+}`,
+    correctCode: `func mayFail() error {
+    // Return nil directly, not a typed nil pointer
+    return nil
+}`,
+    bugLine: 7,
+    options: [
+      "Returning a pointer type from an error function always causes a panic",
+      "A nil *MyError is wrapped in an error interface with a non-nil type descriptor; the interface value is not nil even though the pointer is nil",
+      "error must be returned as a concrete type, not an interface",
+      "The comparison != nil should use errors.Is(err, nil) instead",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "In Go, an interface value is nil only when both its type and value are nil. Returning 'err' (a *MyError nil pointer) wraps it in an error interface: the type descriptor is *MyError (non-nil), so the interface itself is not nil. 'mayFail() != nil' is true even though err is nil. Always return the untyped nil directly from functions returning interfaces.",
+    hint: "When is an interface value equal to nil in Go?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 44. Go — slice append aliasing
+  {
+    bugId: uuidv4(),
+    language: "go",
+    category: "slice append gotcha",
+    difficulty: 4,
+    buggyCode: `func addElement(s []int, v int) []int {
+    s = append(s, v)
+    return s
+}
+
+base := make([]int, 3, 10) // len=3, cap=10
+base[0], base[1], base[2] = 1, 2, 3
+
+a := addElement(base, 4)
+b := addElement(base, 5)
+fmt.Println(a) // [1 2 3 4] or [1 2 3 5]?`,
+    correctCode: `func addElement(s []int, v int) []int {
+    // Make a copy to avoid aliasing the underlying array
+    fresh := make([]int, len(s), len(s)+1)
+    copy(fresh, s)
+    return append(fresh, v)
+}`,
+    bugLine: 8,
+    options: [
+      "append() always allocates a new backing array, so a and b are independent",
+      "Both calls pass base which has spare capacity; append writes into the same backing array without allocating, so 'b := addElement(base, 5)' overwrites a[3]",
+      "make([]int, 3, 10) must use len == cap to be safe with append",
+      "Passing a slice by value creates a copy of the backing array",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "append only allocates a new backing array when len == cap. base has cap=10, so both appends write into the same underlying array at index 3. After 'a := addElement(base, 4)', a[3] is 4. Then 'b := addElement(base, 5)' writes 5 at index 3 of the same array, overwriting a[3]. Printing a gives [1 2 3 5], not [1 2 3 4]. Always copy the slice before appending if you need independent slices.",
+    hint: "When does Go's append function allocate a new backing array for the slice?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 45. Go — channel direction in function signature
+  {
+    bugId: uuidv4(),
+    language: "go",
+    category: "channel direction",
+    difficulty: 3,
+    buggyCode: `func producer(ch chan int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch)
+}
+
+func consumer(ch chan int) {
+    ch <- 99  // Bug: consumer is reading but can also accidentally send
+}`,
+    correctCode: `func producer(ch chan<- int) {
+    for i := 0; i < 5; i++ {
+        ch <- i
+    }
+    close(ch)
+}
+
+func consumer(ch <-chan int) {
+    for v := range ch {
+        fmt.Println(v)
+    }
+}`,
+    bugLine: 1,
+    options: [
+      "Bidirectional channels cannot be passed to functions in Go",
+      "Using chan int instead of chan<- int or <-chan int allows consumer to accidentally send on a receive-only channel and producer to receive — directional types catch these bugs at compile time",
+      "close() can only be called on chan<- int channels",
+      "Channel direction annotations are only valid for buffered channels",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Go supports directional channel types: chan<- T (send-only) and <-chan T (receive-only). Using the undirected chan int in both producer and consumer signatures means either function can both send and receive, and the type system won't catch mistakes like consumer accidentally sending. Directional types make intent explicit and let the compiler reject direction violations. Also, close() can only be called on a bidirectional or send-only channel — it's a compile error on <-chan.",
+    hint: "What is the difference between chan int, chan<- int, and <-chan int in Go?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // -----------------------------------------------------------------------
+  // PYTHON × 5  (IDs 46–50)
+  // -----------------------------------------------------------------------
+
+  // 46. Python — generator exhaustion
+  {
+    bugId: uuidv4(),
+    language: "python",
+    category: "generator exhaustion",
+    difficulty: 3,
+    buggyCode: `def evens(n):
+    for i in range(n):
+        if i % 2 == 0:
+            yield i
+
+gen = evens(10)
+print(list(gen))   # [0, 2, 4, 6, 8]
+print(list(gen))   # Expected: [0, 2, 4, 6, 8] again?`,
+    correctCode: `def evens(n):
+    for i in range(n):
+        if i % 2 == 0:
+            yield i
+
+# Call evens() again to get a fresh generator
+print(list(evens(10)))
+print(list(evens(10)))`,
+    bugLine: 8,
+    options: [
+      "list() consumes a generator and raises StopIteration on the second call",
+      "A generator can only be iterated once; after the first list(gen) the generator is exhausted and the second list(gen) returns []",
+      "yield requires a send() call to reset the generator state",
+      "Generators automatically reset when converted to a list",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "A Python generator object maintains its position in the sequence. After list(gen) drains all values, the generator is in an exhausted state — there is no rewind mechanism. The second list(gen) returns [] because calling next() on an exhausted generator immediately raises StopIteration. To iterate multiple times, either store the result in a list, or call evens(10) again to create a fresh generator.",
+    hint: "Can you iterate over a Python generator more than once?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 47. Python — walrus operator scope
+  {
+    bugId: uuidv4(),
+    language: "python",
+    category: "walrus operator",
+    difficulty: 4,
+    buggyCode: `import re
+
+patterns = [r"\\d+", r"[a-z]+", r"[A-Z]+"]
+text = "Hello123"
+
+results = [m.group() for p in patterns if (m := re.search(p, text))]
+print(m)  # Is 'm' defined here?`,
+    correctCode: `import re
+
+patterns = [r"\\d+", r"[a-z]+", r"[A-Z]+"]
+text = "Hello123"
+
+results = [m.group() for p in patterns if (m := re.search(p, text))]
+# 'm' leaks into the enclosing scope — it holds the last match object
+# This is intentional for walrus but can cause surprising behaviour`,
+    bugLine: 7,
+    options: [
+      "The walrus operator := is not allowed inside list comprehensions",
+      "Unlike regular comprehension variables, := leaks the bound name into the enclosing scope; 'm' at line 7 is the last match object (or undefined if no pattern matched), which may be surprising",
+      "re.search returns a bytes object that cannot call .group()",
+      "m.group() raises AttributeError when the match fails",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "In Python 3.8+, the walrus operator := in a comprehension deliberately leaks its binding into the enclosing scope (unlike the iteration variable which is local). After the comprehension, 'm' refers to the last value it was assigned — the match object from the last pattern that matched, or potentially an older value if the last pattern didn't match. This is by design but often surprises developers who expect comprehension-local scope.",
+    hint: "Does the walrus operator := inside a list comprehension create a scope-local variable?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 48. Python — f-string expression evaluated at call site
+  {
+    bugId: uuidv4(),
+    language: "python",
+    category: "f-string edge case",
+    difficulty: 3,
+    buggyCode: `class User:
+    def __init__(self, name):
+        self.name = name
+        self.greeting = f"Hello, {self.name}!"
+
+    def rename(self, new_name):
+        self.name = new_name
+
+u = User("Alice")
+u.rename("Bob")
+print(u.greeting)  # What does this print?`,
+    correctCode: `class User:
+    def __init__(self, name):
+        self.name = name
+
+    @property
+    def greeting(self):
+        return f"Hello, {self.name}!"`,
+    bugLine: 3,
+    options: [
+      "f-strings inside __init__ cannot reference self",
+      "The f-string is evaluated immediately when __init__ runs, capturing 'Alice'; renaming later does not update greeting because it is a plain string, not a live expression",
+      "greeting should be a class variable, not an instance variable",
+      "f-strings with self.name raise AttributeError during __init__",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "An f-string is evaluated eagerly at the point it is written — not lazily. When __init__ runs, self.name is 'Alice', so greeting becomes the string 'Hello, Alice!'. This string object is stored as self.greeting. Calling rename('Bob') changes self.name but does not re-evaluate the f-string stored in self.greeting. To make greeting always reflect the current name, define it as a property that builds the f-string on access.",
+    hint: "When exactly is an f-string expression evaluated in Python?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 49. Python — tuple unpacking count mismatch
+  {
+    bugId: uuidv4(),
+    language: "python",
+    category: "unpacking error",
+    difficulty: 2,
+    buggyCode: `def get_coords():
+    return 1, 2, 3  # x, y, z
+
+x, y = get_coords()
+print(x, y)`,
+    correctCode: `def get_coords():
+    return 1, 2, 3
+
+x, y, z = get_coords()
+print(x, y, z)
+
+# Or use starred assignment to discard extras:
+x, y, *_ = get_coords()`,
+    bugLine: 4,
+    options: [
+      "Functions cannot return more than two values in Python",
+      "get_coords() returns 3 values but only 2 targets are on the left side; Python raises ValueError: too many values to unpack",
+      "Tuple unpacking requires the right side to be wrapped in list()",
+      "The function should return a tuple explicitly with (1, 2, 3) not a bare comma-separated list",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Python's tuple unpacking requires the number of targets on the left to exactly match the number of values on the right (unless starred assignment is used). 'x, y = get_coords()' unpacks a 3-tuple into 2 variables, raising 'ValueError: too many values to unpack (expected 2)'. Fix by adding a third variable, using a starred catch-all, or changing the function to return 2 values.",
+    hint: "What happens when the number of unpacking targets doesn't match the number of values?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
+
+  // 50. Python — class variable vs instance variable
+  {
+    bugId: uuidv4(),
+    language: "python",
+    category: "class vs instance variable",
+    difficulty: 3,
+    buggyCode: `class BankAccount:
+    balance = 0
+
+    def deposit(self, amount):
+        self.balance += amount
+
+a = BankAccount()
+b = BankAccount()
+a.deposit(100)
+print(b.balance)  # What does this print?`,
+    correctCode: `class BankAccount:
+    def __init__(self):
+        self.balance = 0
+
+    def deposit(self, amount):
+        self.balance += amount`,
+    bugLine: 2,
+    options: [
+      "Class variables and instance variables behave identically for numeric types",
+      "balance = 0 is a class variable; the first self.balance += amount on instance 'a' creates an instance variable on 'a' only — b.balance still reads the class variable 0",
+      "Both a and b share the same balance because integers are immutable in Python",
+      "self.balance += amount modifies the class variable in place for all instances",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Class variables are shared across all instances until an instance assignment shadows them. self.balance += amount is equivalent to self.balance = self.balance + amount. On the first call for 'a', Python reads the class variable (0), adds 100, and stores the result as an instance variable on 'a'. The class variable BankAccount.balance remains 0. b.balance still finds only the class variable: 0. To give each instance its own balance, initialise it in __init__.",
+    hint: "What happens to a class variable when you do self.variable += value on an instance for the first time?",
+    source: "manual",
+    status: "active",
+    timesServed: 0,
+    createdAt: Date.now(),
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -913,11 +2062,18 @@ async function writeIndex(index: {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  const force = process.argv.includes("--force")
+
   console.log(`\nBugHunt seed script — table: ${TABLE_NAME} (${REGION})\n`)
 
-  if (await indexExists()) {
+  if (!force && (await indexExists())) {
     console.log("BUG#INDEX already exists — bugs already seeded. Exiting.")
+    console.log("Tip: run with --force to re-seed all bugs.")
     return
+  }
+
+  if (force) {
+    console.log("--force flag detected: re-seeding all bugs…")
   }
 
   console.log(`Seeding ${bugs.length} bugs…`)
