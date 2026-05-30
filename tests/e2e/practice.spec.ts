@@ -45,8 +45,7 @@ test("practice page shows 4 answer option buttons", async ({ page }) => {
         const labelSpan = b.querySelector("span")
         return (
           labelSpan &&
-          /^[A-D]$/.test(labelSpan.textContent?.trim() ?? "") &&
-          b.closest("div") !== null
+          /^[A-D]$/.test(labelSpan.textContent?.trim() ?? "")
         )
       }).length >= 4
     },

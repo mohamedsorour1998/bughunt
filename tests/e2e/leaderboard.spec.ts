@@ -27,11 +27,8 @@ test("leaderboard shows Season 1 banner", async ({ page }) => {
 
 test("leaderboard tabs are present (All Time / Season 1)", async ({ page }) => {
   await page.goto("/leaderboard")
-  // LeaderboardTabs uses Base UI Tabs which renders with role="tab"
-  const allTimeTab = page
-    .getByRole("tab", { name: /All Time/i })
+  // Tabs rendered as roles by LeaderboardTabs component
+  const allTimeTab = page.getByRole("tab", { name: /All Time/i })
     .or(page.getByRole("button", { name: /All Time/i }))
-  if ((await allTimeTab.count()) > 0) {
-    await expect(allTimeTab.first()).toBeVisible()
-  }
+  await expect(allTimeTab.first()).toBeVisible({ timeout: 5000 })
 })
