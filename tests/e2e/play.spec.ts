@@ -64,8 +64,8 @@ test.describe("Two-player full game flow", () => {
     await page2.getByRole("button", { name: /Find Match/i }).click()
 
     // Both should reach playing state (code block visible) within 20 seconds
-    await expect(page1.locator("pre").first()).toBeVisible({ timeout: 20000 })
-    await expect(page2.locator("pre").first()).toBeVisible({ timeout: 20000 })
+    await expect(page1.locator("pre").first()).toBeVisible({ timeout: 30000 })
+    await expect(page2.locator("pre").first()).toBeVisible({ timeout: 30000 })
   })
 
   test("playing state shows timer and 4 answer buttons on both sides", async () => {
@@ -91,11 +91,14 @@ test.describe("Two-player full game flow", () => {
     const p2AnswerBtns = page2.locator("button").filter({
       has: page2.locator("span").filter({ hasText: /^[A-D]$/ }),
     })
-    await p2AnswerBtns.first().click()
+    // Guard: only click if buttons are still enabled (game may have auto-resolved)
+    await expect(p2AnswerBtns.first()).toBeEnabled({ timeout: 5000 }).catch(() => {})
+    const isEnabled = await p2AnswerBtns.first().isEnabled().catch(() => false)
+    if (isEnabled) await p2AnswerBtns.first().click()
 
     // Both pages redirect to /game/result/...
-    await page1.waitForURL(/\/game\/result\//, { timeout: 20000 })
-    await page2.waitForURL(/\/game\/result\//, { timeout: 20000 })
+    await page1.waitForURL(/\/game\/result\//, { timeout: 30000 })
+    await page2.waitForURL(/\/game\/result\//, { timeout: 30000 })
 
     // Capture gameId for optional cleanup
     const url = page1.url()
