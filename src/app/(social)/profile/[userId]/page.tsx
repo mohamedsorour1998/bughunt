@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { RankBadge } from "@/components/ui/RankBadge"
-import { EloChart } from "@/components/profile/EloChart"
 import { MatchHistory } from "@/components/profile/MatchHistory"
 
 type PublicProfile = {
@@ -183,16 +182,6 @@ export default function PublicProfilePage() {
           <StatCard label="Win Rate" value={`${winRate}%`} />
           <StatCard label="Best Streak" value={profile.bestStreak} />
         </div>
-
-        {/* Elo chart — only own profile has history access */}
-        {isOwnProfile && (
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/50">
-              Elo Trend
-            </h2>
-            <EloChart history={[]} currentElo={profile.elo} />
-          </section>
-        )}
 
         {/* Match history — only for own profile */}
         {isOwnProfile && (

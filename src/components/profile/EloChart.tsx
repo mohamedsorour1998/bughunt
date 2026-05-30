@@ -28,7 +28,16 @@ export function EloChart({ history, currentElo }: EloChartProps) {
     )
   }
 
-  const elos = points.map((p) => p.eloAfter)
+  const elos = points.map((p) => p.eloAfter).filter((v) => Number.isFinite(v))
+
+  if (elos.length < 2) {
+    return (
+      <div className="flex h-[120px] items-center justify-center rounded-xl border border-white/10 bg-white/5 text-sm text-white/50">
+        Play more games to see your Elo trend
+      </div>
+    )
+  }
+
   const minElo = Math.min(...elos, BASELINE_ELO) - 20
   const maxElo = Math.max(...elos, currentElo) + 20
 
