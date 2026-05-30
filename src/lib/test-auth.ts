@@ -13,3 +13,24 @@ export function getTestSession(req: Request): { user: { id: string; email: strin
   }
   return users[userId] ? { user: users[userId] } : null
 }
+
+/**
+ * Cookie-based TEST_MODE auth bypass for browser-driven Playwright tests.
+ * Reads the "test-user-id" cookie set by /api/test/auth.
+ */
+export async function getTestSessionFromCookies(): Promise<{ user: { id: string; email: string; name: string } } | null> {
+  if (process.env.TEST_MODE !== "true") return null
+  try {
+    const { cookies } = await import("next/headers")
+    const cookieStore = await cookies()
+    const userId = cookieStore.get("test-user-id")?.value
+    if (!userId) return null
+    const users: Record<string, { id: string; email: string; name: string }> = {
+      "test-user-1": { id: "test-user-1", email: "testuser1@bughunt.test", name: "Test Player One" },
+      "test-user-2": { id: "test-user-2", email: "testuser2@bughunt.test", name: "Test Player Two" },
+    }
+    return users[userId] ? { user: users[userId] } : null
+  } catch {
+    return null
+  }
+}

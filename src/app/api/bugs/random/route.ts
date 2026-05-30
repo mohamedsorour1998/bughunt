@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getBugForPractice, getBug } from "@/lib/bugs"
 import { getUser } from "@/lib/users"
+import { getTestSessionFromCookies } from "@/lib/test-auth"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Auth is optional — practice works without sign-in
-  const session = await auth()
+  const session = (await auth()) ?? await getTestSessionFromCookies()
   let bugsSeen: string[] = []
 
   if (session?.user?.id) {

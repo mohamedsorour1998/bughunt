@@ -15,12 +15,15 @@ export default defineConfig({
     { name: "setup", testMatch: /.*\.setup\.ts/ },
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "tests/helpers/.auth-user1.json",
+      },
       dependencies: ["setup"],
     },
   ],
   webServer: {
-    command: "npm run start",
+    command: "TEST_MODE=true npm run start",
     url: "http://localhost:3000",
     reuseExistingServer: true,
     timeout: 30000,

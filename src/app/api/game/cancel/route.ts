@@ -2,13 +2,13 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { deleteItem, queryItems } from "@/lib/dynamodb"
 import { getUser } from "@/lib/users"
-import { getTestSession } from "@/lib/test-auth"
+import { getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
 // All possible elo ranges (0, 200, 400, ..., 3200)
 const ELO_RANGES = Array.from({ length: 17 }, (_, i) => i * 200)
 
 export async function POST(req: Request) {
-  const session = (await auth()) ?? getTestSession(req)
+  const session = (await auth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }

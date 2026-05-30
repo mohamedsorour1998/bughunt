@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getUser } from "@/lib/users"
-import { getTestSession } from "@/lib/test-auth"
+import { getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
 export async function GET(req: Request) {
-  const session = (await auth()) ?? getTestSession(req)
+  const session = (await auth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
