@@ -9,13 +9,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import type { Bug } from "@/lib/bugs"
 
-const ADMIN_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "").split(",").map((e) => e.trim()).filter(Boolean)
-
-function isAdmin(email: string | null | undefined): boolean {
-  if (!email) return false
-  return ADMIN_EMAILS.includes(email)
-}
-
 const LANGUAGES = ["Python", "JavaScript", "TypeScript", "Go", "SQL", "Bash"]
 const DIFFICULTIES = [1, 2, 3, 4, 5] as const
 
@@ -476,29 +469,32 @@ function CreateBugSection() {
 // Admin Page
 // ---------------------------------------------------------------------------
 export default function AdminPage() {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const router = useRouter()
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/")
       return
     }
-    if (status === "authenticated" && !isAdmin(session?.user?.email)) {
-      router.push("/")
+    if (status === "authenticated") {
+      fetch("/api/admin/check")
+        .then(r => r.json())
+        .then(data => {
+          if (!data.isAdmin) router.push("/")
+          else setIsAdmin(true)
+        })
+        .catch(() => router.push("/"))
     }
-  }, [status, session, router])
+  }, [status, router])
 
-  if (status === "loading") {
+  if (status === "loading" || !isAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-950">
         <p className="text-gray-400">Loading...</p>
       </div>
     )
-  }
-
-  if (!session || !isAdmin(session?.user?.email)) {
-    return null
   }
 
   return (

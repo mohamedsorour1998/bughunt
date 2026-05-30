@@ -88,7 +88,8 @@ Respond with ONLY valid JSON matching this schema:
       explanation: bug.explanation,
       hint: bug.hint,
     }
-  } catch {
+  } catch (err) {
+    console.error("[bedrock] generateBug failed:", err)
     return null
   }
 }
