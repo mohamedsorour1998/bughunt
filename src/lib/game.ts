@@ -358,10 +358,13 @@ export async function resolveGame(gameId: string): Promise<void> {
   // Update leaderboard items
   // ---------------------------------------------------------------------------
   // Remove old leaderboard entry and add new one for player1
-  await updateLeaderboardEntry(game.player1Id, p1EloBefore, p1EloAfter, p1Profile.displayName, p1Profile.avatar)
+  await updateLeaderboardEntry(game.player1Id, p1EloBefore, p1EloAfter, p1Profile.displayName, p1Profile.avatar, p1NewGamesPlayed, p1NewGamesWon)
 
   if (game.player2Id && p2Profile) {
-    await updateLeaderboardEntry(game.player2Id, p2EloBefore, p2EloAfter, p2Profile.displayName, p2Profile.avatar)
+    const p2Won = winnerId === game.player2Id
+    const p2NewGamesPlayed = p2Profile.gamesPlayed + 1
+    const p2NewGamesWon = p2Profile.gamesWon + (p2Won ? 1 : 0)
+    await updateLeaderboardEntry(game.player2Id, p2EloBefore, p2EloAfter, p2Profile.displayName, p2Profile.avatar, p2NewGamesPlayed, p2NewGamesWon)
   }
 
   // ---------------------------------------------------------------------------
@@ -404,7 +407,9 @@ async function updateLeaderboardEntry(
   oldElo: number,
   newElo: number,
   displayName: string,
-  avatar: string | null
+  avatar: string | null,
+  gamesPlayed: number,
+  gamesWon: number
 ): Promise<void> {
   // Delete old entry
   const oldKey = zeroPad(oldElo) + "#" + userId
@@ -419,6 +424,8 @@ async function updateLeaderboardEntry(
     elo: newElo,
     displayName,
     avatar,
+    gamesPlayed,
+    gamesWon,
     updatedAt: Date.now(),
   })
 }
