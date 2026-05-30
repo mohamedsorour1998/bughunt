@@ -106,9 +106,14 @@ export async function getMatchHistory(
   limit = 20,
   cursor?: string
 ): Promise<{ entries: MatchHistoryEntry[]; nextCursor?: string }> {
-  const exclusiveStartKey = cursor
-    ? (JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<string, unknown>)
-    : undefined
+  let exclusiveStartKey: Record<string, unknown> | undefined
+  if (cursor) {
+    try {
+      exclusiveStartKey = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<string, unknown>
+    } catch {
+      exclusiveStartKey = undefined
+    }
+  }
 
   const { items, lastEvaluatedKey } = await queryItems(
     "pk = :pk AND begins_with(sk, :skPrefix)",
