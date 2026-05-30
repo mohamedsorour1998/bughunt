@@ -31,7 +31,7 @@ import {
 } from "@aws-sdk/client-dynamodb";
 
 const TABLE_NAME = "bughunt-main";
-const REGION = "us-east-1";
+const REGION = process.env.AWS_REGION ?? "us-east-1";
 const TTL_ATTRIBUTE = "expiresAt";
 
 const client = new DynamoDBClient({ region: REGION });
