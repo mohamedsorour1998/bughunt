@@ -817,7 +817,7 @@ fmt.Println(result)`,
     ],
     correctAnswer: 1,
     explanation:
-      "int32 has a maximum value of 2,147,483,647. For moderate day counts (≤ 24 days) the result fits. But daysToSeconds(25) = 2,160,000 which fits, while daysToSeconds(50) = 4,320,000 silently overflows and wraps to a negative number. Using int64 (max ~9.2 × 10^18) avoids the overflow for any realistic input.",
+      "int32 has a maximum value of 2,147,483,647. daysToSeconds(days) = days × 86400, which overflows int32 when days > 24,855 (~68 years). Year-scale inputs (e.g. 365 × years) can easily reach that threshold. Using int64 (max ~9.2 × 10^18) avoids the overflow for any realistic input.",
     hint: "What is the maximum value of int32, and how many seconds are in 25+ days?",
     source: "manual",
     status: "active",
