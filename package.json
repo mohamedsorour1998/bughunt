@@ -12,7 +12,7 @@
     "db:seed-season": "npx tsx scripts/seed-season.ts",
     "test:elo": "npx tsx src/lib/__tests__/elo.test.ts",
     "test:unit": "npx tsx src/lib/__tests__/elo.test.ts && npx tsx src/lib/__tests__/rank.test.ts && npx tsx src/lib/__tests__/bugs-logic.test.ts && npx tsx src/lib/__tests__/seasons-logic.test.ts && npx tsx src/lib/__tests__/game-resolution.test.ts",
-    "test:api": "echo 'No API tests yet'",
+    "test:api": "TEST_MODE=true npx tsx --tsconfig tsconfig.test.json --test tests/api/user.test.ts",
     "test:e2e": "TEST_MODE=true npx playwright test",
     "test:e2e:ui": "TEST_MODE=true npx playwright test --ui",
     "load-test": "npx artillery run scripts/load-test.yml"
