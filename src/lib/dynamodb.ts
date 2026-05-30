@@ -63,6 +63,10 @@ export function cacheSet(key: string, val: unknown, ttlMs?: number): void {
   }
 }
 
+export function cacheDel(key: string): void {
+  _cache.delete(key);
+}
+
 // ---------------------------------------------------------------------------
 // 4. Generic CRUD wrappers
 // ---------------------------------------------------------------------------
@@ -164,6 +168,7 @@ export async function queryItems(
     expressionAttributeNames?: Record<string, string>;
     limit?: number;
     exclusiveStartKey?: Record<string, unknown>;
+    scanIndexForward?: boolean;
   }
 ): Promise<{
   items: Record<string, unknown>[];
@@ -184,6 +189,9 @@ export async function queryItems(
       ...(options?.limit !== undefined ? { Limit: options.limit } : {}),
       ...(options?.exclusiveStartKey
         ? { ExclusiveStartKey: options.exclusiveStartKey }
+        : {}),
+      ...(options?.scanIndexForward !== undefined
+        ? { ScanIndexForward: options.scanIndexForward }
         : {}),
     })
   );
