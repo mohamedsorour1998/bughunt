@@ -10,6 +10,7 @@
     "db:create": "npx tsx scripts/create-table.ts"
   },
   "dependencies": {
+    "@auth/dynamodb-adapter": "^2.11.2",
     "@aws-sdk/client-dynamodb": "^3.1057.0",
     "@aws-sdk/lib-dynamodb": "^3.1057.0",
     "@base-ui/react": "^1.5.0",
