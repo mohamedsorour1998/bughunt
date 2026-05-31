@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
 import { Bug, Menu, X } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
@@ -17,10 +17,76 @@ const NAV_LINKS = [
   { href: "/leaderboard", label: "Leaderboard" },
 ]
 
+type NotifItem = {
+  notifId: string
+  sk: string
+  type: string
+  fromDisplayName?: string
+  challengeId?: string
+  gameId?: string
+  read: boolean
+  createdAt: number
+}
+
 export function Navbar() {
   const pathname = usePathname()
+  const router = useRouter()
   const { data: session, status } = useSession()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [notifications, setNotifications] = useState<NotifItem[]>([])
+  const [bellOpen, setBellOpen] = useState(false)
+  const sseRef = useRef<EventSource | null>(null)
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+
+    fetchNotifications()
+
+    // SSE subscription for real-time delivery
+    const sse = new EventSource("/api/notifications/stream")
+    sseRef.current = sse
+    sse.onmessage = () => {
+      fetchNotifications()
+    }
+
+    // Fallback poll every 60s
+    const poll = setInterval(fetchNotifications, 60_000)
+
+    return () => {
+      sse.close()
+      clearInterval(poll)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
+
+  async function fetchNotifications() {
+    try {
+      const res = await fetch("/api/notifications")
+      if (res.ok) {
+        const data = (await res.json()) as {
+          notifications: NotifItem[]
+          unreadCount: number
+        }
+        setNotifications(data.notifications)
+        setUnreadCount(data.unreadCount)
+      }
+    } catch {
+      // ignore network errors
+    }
+  }
+
+  async function markRead(sk: string) {
+    await fetch("/api/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sk }),
+    })
+    setNotifications((prev) =>
+      prev.map((n) => (n.sk === sk ? { ...n, read: true } : n))
+    )
+    setUnreadCount((c) => Math.max(0, c - 1))
+  }
 
   const user = session?.user as
     | { id?: string; name?: string | null; image?: string | null; elo?: number }
@@ -86,6 +152,79 @@ export function Navbar() {
                 </span>
               </div>
               <RankBadge rank={rank} size="sm" />
+
+              {/* Notification bell */}
+              <div className="relative">
+                <button
+                  onClick={() => setBellOpen((o) => !o)}
+                  className="relative rounded-full p-1 text-white/70 hover:text-white transition-colors"
+                  aria-label="Notifications"
+                >
+                  🔔
+                  {unreadCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {bellOpen && (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-white/10 bg-zinc-900 p-2 shadow-2xl">
+                    {notifications.length === 0 ? (
+                      <p className="px-3 py-4 text-center text-sm text-white/50">No notifications</p>
+                    ) : (
+                      <ul className="max-h-80 space-y-1 overflow-y-auto">
+                        {notifications.slice(0, 15).map((n) => (
+                          <li
+                            key={n.notifId}
+                            className={`flex cursor-pointer items-start gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/5 ${
+                              n.read ? "text-white/50" : "text-white"
+                            }`}
+                            onClick={() => {
+                              markRead(n.sk)
+                              if (n.gameId) router.push(`/game/result/${n.gameId}`)
+                              setBellOpen(false)
+                            }}
+                          >
+                            <span className="mt-0.5 shrink-0">
+                              {n.type === "challenge_received"
+                                ? "⚔️"
+                                : n.type === "challenge_accepted"
+                                ? "✅"
+                                : n.type === "challenge_declined"
+                                ? "❌"
+                                : "🎮"}
+                            </span>
+                            <div>
+                              <p>
+                                {n.type === "challenge_received"
+                                  ? `${n.fromDisplayName} challenged you!`
+                                  : n.type === "challenge_accepted"
+                                  ? `${n.fromDisplayName} accepted your challenge`
+                                  : n.type === "challenge_declined"
+                                  ? `${n.fromDisplayName} declined your challenge`
+                                  : "New activity"}
+                              </p>
+                              <p className="text-xs text-white/30">
+                                {new Date(n.createdAt).toLocaleTimeString()}
+                              </p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="mt-1 border-t border-white/10 pt-1">
+                      <button
+                        onClick={() => { router.push("/feed"); setBellOpen(false) }}
+                        className="w-full rounded-lg px-3 py-1.5 text-center text-xs text-white/50 hover:bg-white/5 hover:text-white transition-colors"
+                      >
+                        View feed
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={() => signOut({ callbackUrl: "/" })}
                 className="text-xs text-white/50 hover:text-white transition-colors px-2 py-1 rounded hover:bg-white/10"
