@@ -1,13 +1,12 @@
 // src/app/api/social/challenges/pending/route.ts
 // Queries user-side index items (CHALLENGE_SENT# / CHALLENGE_RECV#) written at challenge creation,
 // then fetches each challenge's META for status filtering.
-import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { NextRequest, NextResponse } from "next/server"
+import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { queryItems, getItem } from "@/lib/dynamodb"
 
-export async function GET() {
-  const session = await getServerSession(authOptions)
+export async function GET(req: NextRequest) {
+  const session = (await safeAuth()) ?? getTestSession(req) ?? (await getTestSessionFromCookies())
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }

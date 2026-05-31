@@ -1,7 +1,6 @@
 // src/app/api/social/challenge/respond/route.ts
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { getItem, updateItem } from "@/lib/dynamodb"
 import { sendNotification } from "@/lib/notifications"
 import { createGame } from "@/lib/game"
@@ -9,7 +8,7 @@ import { selectBugForGame } from "@/lib/bugs"
 import { getUser } from "@/lib/users"
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
+  const session = (await safeAuth()) ?? getTestSession(req) ?? (await getTestSessionFromCookies())
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }

@@ -1,14 +1,13 @@
 // src/app/api/game/join/[gameId]/route.ts
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { getItem, updateItem, putItem } from "@/lib/dynamodb"
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ gameId: string }> }
 ) {
-  const session = await getServerSession(authOptions)
+  const session = (await safeAuth()) ?? getTestSession(req) ?? (await getTestSessionFromCookies())
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
