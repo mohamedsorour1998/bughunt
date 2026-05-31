@@ -20,6 +20,9 @@ export type UserProfile = {
   // Community submissions
   bugsSubmitted: number
   bugsRejected: number
+  // Social
+  followerCount: number
+  followingCount: number
 }
 
 export type MatchHistoryEntry = {
@@ -76,6 +79,8 @@ export async function getUser(userId: string): Promise<UserProfile | null> {
     lastDailyDate: (item.lastDailyDate as string | null) ?? null,
     bugsSubmitted: (item.bugsSubmitted as number) ?? 0,
     bugsRejected: (item.bugsRejected as number) ?? 0,
+    followerCount: (item.followerCount as number) ?? 0,
+    followingCount: (item.followingCount as number) ?? 0,
   }
 
   cacheSet(cacheKey, profile, USER_CACHE_TTL_MS)
@@ -110,6 +115,8 @@ export async function updateUser(
     lastDailyDate: (item.lastDailyDate as string | null) ?? null,
     bugsSubmitted: (item.bugsSubmitted as number) ?? 0,
     bugsRejected: (item.bugsRejected as number) ?? 0,
+    followerCount: (item.followerCount as number) ?? 0,
+    followingCount: (item.followingCount as number) ?? 0,
   }
 
   return profile
