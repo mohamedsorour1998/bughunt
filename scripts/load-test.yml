@@ -1,29 +1,46 @@
 config:
-  target: "http://localhost:3000"
+  target: "{{ $processEnvironment.TARGET_URL || 'http://localhost:3000' }}"
   phases:
     - duration: 60
       arrivalRate: 10
       name: "Warm up"
     - duration: 120
-      arrivalRate: 50
+      arrivalRate: 100
       name: "Sustained load"
     - duration: 60
+      arrivalRate: 500
+      name: "High load"
+    - duration: 30
+      arrivalRate: 1000
+      name: "Peak load (1000 req/s)"
+    - duration: 60
       arrivalRate: 100
-      name: "Peak load"
+      name: "Cool down"
   defaults:
     headers:
       Content-Type: "application/json"
 
 scenarios:
-  - name: "Matchmake flow"
-    weight: 70
+  - name: "Matchmake flow (Redis-backed)"
+    weight: 60
     flow:
       - post:
           url: "/api/game/matchmake"
           json:
-            userId: "load-test-user-{{ $randomNumber(1, 1000) }}"
+            userId: "load-test-user-{{ $randomNumber(1, 10000) }}"
           expect:
             - statusCode: 401
+
+  - name: "SSE game stream"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/game/stream?gameId=load-test-game-{{ $randomNumber(1, 1000) }}"
+          expect:
+            - statusCode:
+                - 200
+                - 401
+                - 404
 
   - name: "Leaderboard read"
     weight: 20
