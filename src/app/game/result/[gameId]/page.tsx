@@ -6,6 +6,7 @@ import { useParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { toast } from "sonner"
 import { GameResult } from "@/components/game/GameResult"
+import { GameChat } from "@/components/game/GameChat"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 
@@ -33,6 +34,7 @@ interface GameData {
   winnerId: string | null
   createdAt: number
   expiresAt: number
+  affectsElo?: boolean
 }
 
 interface BugData {
@@ -252,6 +254,20 @@ export default function ResultPage() {
           setTimeout(() => clearInterval(pollInterval), 65_000)
         }}
       />
+
+      {/* Private game badge */}
+      {game.affectsElo === false && (
+        <div className="mx-auto max-w-3xl px-4 pb-4 sm:px-6 lg:px-8">
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-white/60">
+            Private · No Elo change
+          </span>
+        </div>
+      )}
+
+      {/* Post-game chat */}
+      <div className="mx-auto max-w-3xl px-4 pb-8 sm:px-6 lg:px-8">
+        <GameChat gameId={gameId} />
+      </div>
     </main>
   )
 }
