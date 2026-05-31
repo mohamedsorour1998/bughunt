@@ -23,6 +23,8 @@ export type UserProfile = {
   // Social
   followerCount: number
   followingCount: number
+  // Streak shields
+  streakShields: number
 }
 
 export type MatchHistoryEntry = {
@@ -81,6 +83,7 @@ export async function getUser(userId: string): Promise<UserProfile | null> {
     bugsRejected: (item.bugsRejected as number) ?? 0,
     followerCount: (item.followerCount as number) ?? 0,
     followingCount: (item.followingCount as number) ?? 0,
+    streakShields: (item.streakShields as number) ?? 0,
   }
 
   cacheSet(cacheKey, profile, USER_CACHE_TTL_MS)
@@ -117,6 +120,7 @@ export async function updateUser(
     bugsRejected: (item.bugsRejected as number) ?? 0,
     followerCount: (item.followerCount as number) ?? 0,
     followingCount: (item.followingCount as number) ?? 0,
+    streakShields: (item.streakShields as number) ?? 0,
   }
 
   return profile

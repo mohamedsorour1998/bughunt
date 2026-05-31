@@ -63,6 +63,7 @@ interface MatchHistoryEntry {
   eloAfter: number
   eloChange: number
   newAchievements?: string[]
+  shieldUsed?: boolean
 }
 
 interface GameDetailResponse {
@@ -261,6 +262,15 @@ export default function ResultPage() {
           <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-white/60">
             Private · No Elo change
           </span>
+        </div>
+      )}
+
+      {/* Shield used banner */}
+      {matchHistoryEntry?.shieldUsed && (
+        <div className="mx-auto max-w-3xl px-4 pb-4 sm:px-6 lg:px-8">
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-center text-sm font-medium text-blue-300">
+            🛡️ Shield used — streak preserved!
+          </div>
         </div>
       )}
 

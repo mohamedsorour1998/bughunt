@@ -52,20 +52,34 @@ export type GamePlayer = {
 function checkAchievements(
   profile: UserProfile,
   newProfile: { gamesPlayed: number; gamesWon: number; currentStreak: number; elo: number }
-): string[] {
+): { achievements: string[]; shieldGrant: number } {
   const already = new Set(profile.achievementsUnlocked ?? [])
   const newOnes: string[] = []
+  let shieldGrant = 0
 
   if (!already.has("first_win") && newProfile.gamesWon >= 1) newOnes.push("first_win")
-  if (!already.has("games_10") && newProfile.gamesPlayed >= 10) newOnes.push("games_10")
+  if (!already.has("games_10") && newProfile.gamesPlayed >= 10) {
+    newOnes.push("games_10")
+    shieldGrant += 1 // every 10 games: +1 shield
+  }
   if (!already.has("games_100") && newProfile.gamesPlayed >= 100) newOnes.push("games_100")
   if (!already.has("streak_5") && newProfile.currentStreak >= 5) newOnes.push("streak_5")
   if (!already.has("streak_10") && newProfile.currentStreak >= 10) newOnes.push("streak_10")
-  if (!already.has("elo_1400") && newProfile.elo >= 1400) newOnes.push("elo_1400")
-  if (!already.has("elo_1600") && newProfile.elo >= 1600) newOnes.push("elo_1600")
-  if (!already.has("elo_2000") && newProfile.elo >= 2000) newOnes.push("elo_2000")
 
-  return newOnes
+  // Rank tier unlocks grant +2 shields each
+  const RANK_THRESHOLDS: Record<string, number> = {
+    elo_1400: 1400,
+    elo_1600: 1600,
+    elo_2000: 2000,
+  }
+  for (const [key, threshold] of Object.entries(RANK_THRESHOLDS)) {
+    if (!already.has(key) && newProfile.elo >= threshold) {
+      newOnes.push(key)
+      shieldGrant += 2 // new rank tier: +2 shields
+    }
+  }
+
+  return { achievements: newOnes, shieldGrant }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,21 +327,39 @@ export async function resolveGame(gameId: string): Promise<void> {
   const p1Drew = winnerId === null
   const p1NewGamesPlayed = p1Profile.gamesPlayed + 1
   const p1NewGamesWon = p1Profile.gamesWon + (p1Won ? 1 : 0)
-  // Win: streak +1, Loss: streak reset to 0, Draw: streak unchanged
-  const p1NewStreak = p1Won
-    ? p1Profile.currentStreak + 1
-    : p1Drew
-    ? p1Profile.currentStreak
-    : 0
+
+  // Win: streak +1, Draw: streak unchanged, Loss: reset (unless shielded)
+  let p1NewStreak: number
+  let p1ShieldUsed = false
+  let p1NewShieldsBase = p1Profile.streakShields ?? 0
+
+  if (p1Won) {
+    p1NewStreak = p1Profile.currentStreak + 1
+  } else if (p1Drew) {
+    p1NewStreak = p1Profile.currentStreak
+  } else {
+    // Loss: consume a shield if available and streak is worth protecting
+    if ((p1Profile.streakShields ?? 0) > 0 && p1Profile.currentStreak > 0) {
+      p1NewStreak = p1Profile.currentStreak  // shield absorbs the loss
+      p1NewShieldsBase = (p1Profile.streakShields ?? 0) - 1
+      p1ShieldUsed = true
+    } else {
+      p1NewStreak = 0
+    }
+  }
+
   const p1NewBestStreak = Math.max(p1Profile.bestStreak, p1NewStreak)
   const p1NewRank = shouldAffectElo ? getRankFromElo(p1EloAfter) : p1Profile.rank
 
-  const p1NewAchievements = checkAchievements(p1Profile, {
+  const { achievements: p1NewAchievements, shieldGrant: p1ShieldGrant } = checkAchievements(p1Profile, {
     gamesPlayed: p1NewGamesPlayed,
     gamesWon: p1NewGamesWon,
     currentStreak: p1NewStreak,
     elo: p1EloAfter,
   })
+
+  // Cap shields at 3
+  const p1NewShields = Math.min(3, p1NewShieldsBase + p1ShieldGrant)
 
   await updateUser(game.player1Id, {
     ...(shouldAffectElo ? { elo: p1EloAfter, rank: p1NewRank } : {}),
@@ -335,6 +367,7 @@ export async function resolveGame(gameId: string): Promise<void> {
     gamesWon: p1NewGamesWon,
     currentStreak: p1NewStreak,
     bestStreak: p1NewBestStreak,
+    streakShields: p1NewShields,
     achievementsUnlocked: [
       ...(p1Profile.achievementsUnlocked ?? []),
       ...p1NewAchievements,
@@ -345,26 +378,43 @@ export async function resolveGame(gameId: string): Promise<void> {
   // Update player2 stats (if exists)
   // ---------------------------------------------------------------------------
   let p2NewAchievements: string[] = []
+  let p2ShieldUsed = false
   if (game.player2Id && p2Profile) {
     const p2Won = winnerId === game.player2Id
     const p2Drew = winnerId === null
     const p2NewGamesPlayed = p2Profile.gamesPlayed + 1
     const p2NewGamesWon = p2Profile.gamesWon + (p2Won ? 1 : 0)
-    // Win: streak +1, Loss: streak reset to 0, Draw: streak unchanged
-    const p2NewStreak = p2Won
-      ? p2Profile.currentStreak + 1
-      : p2Drew
-      ? p2Profile.currentStreak
-      : 0
+
+    // Win: streak +1, Draw: streak unchanged, Loss: reset (unless shielded)
+    let p2NewStreak: number
+    let p2NewShieldsBase = p2Profile.streakShields ?? 0
+
+    if (p2Won) {
+      p2NewStreak = p2Profile.currentStreak + 1
+    } else if (p2Drew) {
+      p2NewStreak = p2Profile.currentStreak
+    } else {
+      if ((p2Profile.streakShields ?? 0) > 0 && p2Profile.currentStreak > 0) {
+        p2NewStreak = p2Profile.currentStreak
+        p2NewShieldsBase = (p2Profile.streakShields ?? 0) - 1
+        p2ShieldUsed = true
+      } else {
+        p2NewStreak = 0
+      }
+    }
+
     const p2NewBestStreak = Math.max(p2Profile.bestStreak, p2NewStreak)
     const p2NewRank = shouldAffectElo ? getRankFromElo(p2EloAfter) : p2Profile.rank
 
-    p2NewAchievements = checkAchievements(p2Profile, {
+    const { achievements: p2Achievements, shieldGrant: p2ShieldGrant } = checkAchievements(p2Profile, {
       gamesPlayed: p2NewGamesPlayed,
       gamesWon: p2NewGamesWon,
       currentStreak: p2NewStreak,
       elo: p2EloAfter,
     })
+    p2NewAchievements = p2Achievements
+
+    const p2NewShields = Math.min(3, p2NewShieldsBase + p2ShieldGrant)
 
     await updateUser(game.player2Id, {
       ...(shouldAffectElo ? { elo: p2EloAfter, rank: p2NewRank } : {}),
@@ -372,6 +422,7 @@ export async function resolveGame(gameId: string): Promise<void> {
       gamesWon: p2NewGamesWon,
       currentStreak: p2NewStreak,
       bestStreak: p2NewBestStreak,
+      streakShields: p2NewShields,
       achievementsUnlocked: [
         ...(p2Profile.achievementsUnlocked ?? []),
         ...p2NewAchievements,
@@ -392,6 +443,7 @@ export async function resolveGame(gameId: string): Promise<void> {
     eloAfter: p1EloAfter,
     eloChange: p1EloAfter - p1EloBefore,
     newAchievements: p1NewAchievements,
+    shieldUsed: p1ShieldUsed,
     createdAt: now,
     expiresAt: Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000),
   }
@@ -423,6 +475,7 @@ export async function resolveGame(gameId: string): Promise<void> {
       eloAfter: p2EloAfter,
       eloChange: p2EloAfter - p2EloBefore,
       newAchievements: p2NewAchievements,
+      shieldUsed: p2ShieldUsed,
       createdAt: now,
       expiresAt: Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000),
     }
