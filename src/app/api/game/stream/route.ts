@@ -42,37 +42,49 @@ export async function GET(req: NextRequest) {
 
   const channel = `game:${gameId}`
 
+  // Hoist subscriber so cancel() can clean it up on client disconnect
+  let subscriber: ReturnType<typeof redis.subscribe> | null = null
+
   const stream = new ReadableStream({
     start(controller) {
-      const subscriber = redis.subscribe<string>(channel)
+      try {
+        subscriber = redis.subscribe<string>(channel)
 
-      subscriber.on("message", (data) => {
-        try {
-          const raw = typeof data.message === "string" ? data.message : JSON.stringify(data.message)
-          controller.enqueue(new TextEncoder().encode(`data: ${raw}\n\n`))
-
-          let parsed: { type?: string } = {}
+        subscriber.on("message", (data) => {
           try {
-            parsed = JSON.parse(raw)
-          } catch {
-            /* ignore parse errors */
-          }
+            const raw = typeof data.message === "string" ? data.message : JSON.stringify(data.message)
+            controller.enqueue(new TextEncoder().encode(`data: ${raw}\n\n`))
 
-          if (parsed.type === "game_resolved") {
-            subscriber.unsubscribe().catch(() => {/* ignore */})
+            let parsed: { type?: string } = {}
             try {
-              controller.close()
+              parsed = JSON.parse(raw)
             } catch {
-              /* already closed */
+              /* ignore parse errors */
             }
+
+            if (parsed.type === "game_resolved") {
+              subscriber?.unsubscribe().catch(() => {/* ignore */})
+              subscriber?.removeAllListeners()
+              subscriber = null
+              try {
+                controller.close()
+              } catch {
+                /* already closed */
+              }
+            }
+          } catch {
+            /* ignore enqueue errors if stream is closed */
           }
-        } catch {
-          /* ignore enqueue errors if stream is closed */
-        }
-      })
+        })
+      } catch {
+        try { controller.close() } catch { /* already closed */ }
+      }
     },
     cancel() {
-      // Upstash HTTP subscriptions are stateless — no explicit unsubscribe needed
+      // Called when client disconnects — clean up subscription
+      subscriber?.unsubscribe().catch(() => {/* ignore */})
+      subscriber?.removeAllListeners()
+      subscriber = null
     },
   })
 
