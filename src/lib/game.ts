@@ -25,6 +25,15 @@ export type Game = {
   winnerId: string | null
   createdAt: number
   expiresAt: number
+  isPrivate: boolean
+  affectsElo: boolean
+}
+
+export interface CreateGameOptions {
+  isPrivate?: boolean
+  affectsElo?: boolean
+  /** When isPrivate=true and no player2 yet, game starts as "waiting" */
+  waitForPlayer2?: boolean
 }
 
 export type GamePlayer = {
@@ -123,22 +132,28 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
 
 export async function createGame(
   player1Id: string,
-  player2Id: string,
-  bugId: string
+  player2Id: string | null,
+  bugId: string,
+  options: CreateGameOptions = {}
 ): Promise<Game> {
+  const { isPrivate = false, affectsElo = true, waitForPlayer2 = false } = options
+
   const gameId = uuidv4()
   const now = Date.now()
   const expiresAt = Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000) // 90 days TTL (epoch seconds for DDB TTL)
+  const status: GameStatus = waitForPlayer2 ? "waiting" : "active"
 
   const game: Game = {
     gameId,
     player1Id,
     player2Id,
     bugId,
-    status: "active",
+    status,
     winnerId: null,
     createdAt: now,
     expiresAt,
+    isPrivate,
+    affectsElo,
   }
 
   // Write main game META item (gsi1pk tracks player1)
@@ -149,24 +164,28 @@ export async function createGame(
     player1Id,
     player2Id,
     bugId,
-    status: "active",
+    status,
     winnerId: null,
     createdAt: now,
     expiresAt,
+    isPrivate,
+    affectsElo,
     gsi1pk: `ACTIVE_GAME#${player1Id}`,
     gsi1sk: gameId,
   })
 
   // Write tracking item for player2 (separate item so GSI1 can index both)
-  await putItem({
-    pk: `GAME#${gameId}`,
-    sk: `ACTIVE_PLAYER#${player2Id}`,
-    gameId,
-    userId: player2Id,
-    expiresAt,
-    gsi1pk: `ACTIVE_GAME#${player2Id}`,
-    gsi1sk: gameId,
-  })
+  if (player2Id) {
+    await putItem({
+      pk: `GAME#${gameId}`,
+      sk: `ACTIVE_PLAYER#${player2Id}`,
+      gameId,
+      userId: player2Id,
+      expiresAt,
+      gsi1pk: `ACTIVE_GAME#${player2Id}`,
+      gsi1sk: gameId,
+    })
+  }
 
   return game
 }
@@ -257,11 +276,15 @@ export async function resolveGame(gameId: string): Promise<void> {
   // ---------------------------------------------------------------------------
   // Compute new Elo
   // ---------------------------------------------------------------------------
+  const shouldAffectElo = game.affectsElo !== false
+
   const p1EloBefore = p1Profile.elo
   const p2EloBefore = p2Profile?.elo ?? 1200
 
-  const p1EloAfter = computeElo(p1EloBefore, p2EloBefore, p1Score, p1Profile.gamesPlayed)
-  const p2EloAfter = p2Profile
+  const p1EloAfter = shouldAffectElo
+    ? computeElo(p1EloBefore, p2EloBefore, p1Score, p1Profile.gamesPlayed)
+    : p1EloBefore
+  const p2EloAfter = shouldAffectElo && p2Profile
     ? computeElo(p2EloBefore, p1EloBefore, p2Score, p2Profile.gamesPlayed)
     : p2EloBefore
 
@@ -297,7 +320,7 @@ export async function resolveGame(gameId: string): Promise<void> {
     ? p1Profile.currentStreak
     : 0
   const p1NewBestStreak = Math.max(p1Profile.bestStreak, p1NewStreak)
-  const p1NewRank = getRankFromElo(p1EloAfter)
+  const p1NewRank = shouldAffectElo ? getRankFromElo(p1EloAfter) : p1Profile.rank
 
   const p1NewAchievements = checkAchievements(p1Profile, {
     gamesPlayed: p1NewGamesPlayed,
@@ -307,8 +330,7 @@ export async function resolveGame(gameId: string): Promise<void> {
   })
 
   await updateUser(game.player1Id, {
-    elo: p1EloAfter,
-    rank: p1NewRank,
+    ...(shouldAffectElo ? { elo: p1EloAfter, rank: p1NewRank } : {}),
     gamesPlayed: p1NewGamesPlayed,
     gamesWon: p1NewGamesWon,
     currentStreak: p1NewStreak,
@@ -335,7 +357,7 @@ export async function resolveGame(gameId: string): Promise<void> {
       ? p2Profile.currentStreak
       : 0
     const p2NewBestStreak = Math.max(p2Profile.bestStreak, p2NewStreak)
-    const p2NewRank = getRankFromElo(p2EloAfter)
+    const p2NewRank = shouldAffectElo ? getRankFromElo(p2EloAfter) : p2Profile.rank
 
     p2NewAchievements = checkAchievements(p2Profile, {
       gamesPlayed: p2NewGamesPlayed,
@@ -345,8 +367,7 @@ export async function resolveGame(gameId: string): Promise<void> {
     })
 
     await updateUser(game.player2Id, {
-      elo: p2EloAfter,
-      rank: p2NewRank,
+      ...(shouldAffectElo ? { elo: p2EloAfter, rank: p2NewRank } : {}),
       gamesPlayed: p2NewGamesPlayed,
       gamesWon: p2NewGamesWon,
       currentStreak: p2NewStreak,
@@ -435,6 +456,8 @@ export async function resolveGame(gameId: string): Promise<void> {
     winnerId,
     createdAt: game.createdAt,
     expiresAt: game.expiresAt,
+    isPrivate: game.isPrivate,
+    affectsElo: game.affectsElo,
     // No gsi1pk / gsi1sk — completed game should not appear in active queries
   })
 
@@ -463,6 +486,8 @@ function itemToGame(item: Record<string, unknown>): Game {
     winnerId: (item.winnerId as string | null) ?? null,
     createdAt: item.createdAt as number,
     expiresAt: item.expiresAt as number,
+    isPrivate: (item.isPrivate as boolean) ?? false,
+    affectsElo: (item.affectsElo as boolean) ?? true,
   }
 }
 

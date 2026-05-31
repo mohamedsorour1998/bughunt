@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -94,6 +94,8 @@ function DifficultyStars({ difficulty }: { difficulty: number }) {
 
 export default function PlayPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const joinGameId = searchParams.get("join")
   const { data: session, status: sessionStatus } = useSession()
 
   const [playState, setPlayState] = useState<PlayState>("idle")
@@ -288,6 +290,56 @@ export default function PlayPage() {
       setError(err instanceof Error ? err.message : "Failed to start matchmaking")
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Private game join — triggered when ?join=gameId is in the URL
+  // ---------------------------------------------------------------------------
+
+  async function handleJoinPrivateGame(gId: string) {
+    setError(null)
+    try {
+      const res = await fetch(`/api/game/join/${gId}`, { method: "POST" })
+      if (res.ok) {
+        const data = await res.json() as { status: string; gameId: string }
+        if (data.status === "joined" || data.status === "active") {
+          const statusRes = await fetch(`/api/game/status?gameId=${gId}`)
+          if (statusRes.ok) {
+            const statusData: StatusResponse = await statusRes.json()
+            setGameId(gId)
+            setGameData(statusData.game)
+            setBugData(statusData.bug)
+            setPlayerRecord(statusData.player)
+            setPlayState("playing")
+            startGameplayPolling(gId)
+          }
+        } else if (data.status === "waiting") {
+          // Creator view: navigate directly; game page will poll for opponent
+          const statusRes = await fetch(`/api/game/status?gameId=${gId}`)
+          if (statusRes.ok) {
+            const statusData: StatusResponse = await statusRes.json()
+            setGameId(gId)
+            setGameData(statusData.game)
+            setBugData(statusData.bug)
+            setPlayerRecord(statusData.player)
+            setPlayState("playing")
+            startGameplayPolling(gId)
+          }
+        }
+      } else {
+        const err = await res.json() as { error: string }
+        setError(err.error ?? "Could not join game")
+      }
+    } catch {
+      setError("Could not join game")
+    }
+  }
+
+  // Auto-join private game on mount when ?join param is present
+  useEffect(() => {
+    if (!session?.user?.id || !joinGameId) return
+    handleJoinPrivateGame(joinGameId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, joinGameId])
 
   async function handleCancel() {
     setCancelLoading(true)
