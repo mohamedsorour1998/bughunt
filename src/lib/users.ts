@@ -14,6 +14,12 @@ export type UserProfile = {
   bugsSeen: string[]
   achievementsUnlocked: string[]
   createdAt: number
+  // Daily Challenge
+  dailyStreak: number
+  lastDailyDate: string | null   // "YYYY-MM-DD" UTC date of last completion
+  // Community submissions
+  bugsSubmitted: number
+  bugsRejected: number
 }
 
 export type MatchHistoryEntry = {
@@ -66,6 +72,10 @@ export async function getUser(userId: string): Promise<UserProfile | null> {
     bugsSeen: (item.bugsSeen as string[]) ?? [],
     achievementsUnlocked: (item.achievementsUnlocked as string[]) ?? [],
     createdAt: item.createdAt as number,
+    dailyStreak: (item.dailyStreak as number) ?? 0,
+    lastDailyDate: (item.lastDailyDate as string | null) ?? null,
+    bugsSubmitted: (item.bugsSubmitted as number) ?? 0,
+    bugsRejected: (item.bugsRejected as number) ?? 0,
   }
 
   cacheSet(cacheKey, profile, USER_CACHE_TTL_MS)
@@ -96,6 +106,10 @@ export async function updateUser(
     bugsSeen: (item.bugsSeen as string[]) ?? [],
     achievementsUnlocked: (item.achievementsUnlocked as string[]) ?? [],
     createdAt: item.createdAt as number,
+    dailyStreak: (item.dailyStreak as number) ?? 0,
+    lastDailyDate: (item.lastDailyDate as string | null) ?? null,
+    bugsSubmitted: (item.bugsSubmitted as number) ?? 0,
+    bugsRejected: (item.bugsRejected as number) ?? 0,
   }
 
   return profile
