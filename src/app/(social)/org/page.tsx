@@ -4,7 +4,8 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -93,9 +94,7 @@ export default function MyOrgsPage() {
                 <CardTitle className="text-white">{o.orgName}</CardTitle>
               </CardHeader>
               <CardContent>
-                <Button size="sm" variant="outline" asChild>
-                  <Link href={`/org/${o.orgId}`}>View</Link>
-                </Button>
+                <Link href={`/org/${o.orgId}`} className={cn(buttonVariants({ size: "sm", variant: "outline" }))}>View</Link>
               </CardContent>
             </Card>
           ))}

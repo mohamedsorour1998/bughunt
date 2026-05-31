@@ -3,8 +3,9 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import type { Tournament } from "@/lib/tournaments"
 
 function Countdown({ targetMs }: { targetMs: number }) {
@@ -115,9 +116,7 @@ export default function TournamentsPage() {
                   >
                     Register
                   </Button>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href={`/tournaments/${t.tournamentId}`}>View</Link>
-                  </Button>
+                  <Link href={`/tournaments/${t.tournamentId}`} className={cn(buttonVariants({ size: "sm", variant: "outline" }))}>View</Link>
                 </div>
               </CardContent>
             </Card>
@@ -144,9 +143,7 @@ export default function TournamentsPage() {
                     {t.registeredPlayers.length} players
                   </p>
                 </div>
-                <Button size="sm" variant="outline" asChild>
-                  <Link href={`/tournaments/${t.tournamentId}`}>Watch Bracket</Link>
-                </Button>
+                <Link href={`/tournaments/${t.tournamentId}`} className={cn(buttonVariants({ size: "sm", variant: "outline" }))}>Watch Bracket</Link>
               </CardContent>
             </Card>
           ))}
