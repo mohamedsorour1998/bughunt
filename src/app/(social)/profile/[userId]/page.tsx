@@ -20,6 +20,8 @@ type PublicProfile = {
   gamesWon: number
   currentStreak: number
   bestStreak: number
+  followerCount: number
+  followingCount: number
 }
 
 function ProfileSkeleton() {
@@ -94,6 +96,10 @@ export default function PublicProfilePage() {
   const [profile, setProfile] = useState<PublicProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isFollowing, setIsFollowing] = useState(false)
+  const [followLoading, setFollowLoading] = useState(false)
+  const [followerCount, setFollowerCount] = useState(0)
+  const [followingCount, setFollowingCount] = useState(0)
 
   const isOwnProfile = session?.user?.id === userId
 
@@ -110,6 +116,17 @@ export default function PublicProfilePage() {
         if (!res.ok) throw new Error("Failed to load profile")
         const data: PublicProfile = await res.json()
         setProfile(data)
+        setFollowerCount(data.followerCount ?? 0)
+        setFollowingCount(data.followingCount ?? 0)
+
+        // Check follow status only when viewing someone else's profile
+        if (session?.user?.id && session.user.id !== userId) {
+          const followRes = await fetch("/api/social/following")
+          if (followRes.ok) {
+            const { following } = (await followRes.json()) as { following: { userId: string }[] }
+            setIsFollowing(following.some((f) => f.userId === userId))
+          }
+        }
       } catch {
         setError("Failed to load profile")
       } finally {
@@ -118,7 +135,45 @@ export default function PublicProfilePage() {
     }
 
     fetchProfile()
-  }, [userId])
+  }, [userId, session?.user?.id])
+
+  async function handleFollowToggle() {
+    if (!session?.user?.id) return
+    setFollowLoading(true)
+    try {
+      if (isFollowing) {
+        const res = await fetch(`/api/social/follow?followeeId=${userId}`, { method: "DELETE" })
+        if (res.ok) {
+          setIsFollowing(false)
+          setFollowerCount((c) => Math.max(0, c - 1))
+        }
+      } else {
+        const res = await fetch("/api/social/follow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ followeeId: userId }),
+        })
+        if (res.ok) {
+          setIsFollowing(true)
+          setFollowerCount((c) => c + 1)
+        }
+      }
+    } finally {
+      setFollowLoading(false)
+    }
+  }
+
+  async function handleChallenge() {
+    if (!session?.user?.id) return
+    const res = await fetch("/api/social/challenge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengedId: userId }),
+    })
+    if (res.ok) {
+      alert("Challenge sent!")
+    }
+  }
 
   if (loading) {
     return (
@@ -168,11 +223,29 @@ export default function PublicProfilePage() {
             </div>
           </div>
 
-          {isOwnProfile && (
+          {isOwnProfile ? (
             <Button onClick={() => router.push("/play")} size="lg">
               Play Now
             </Button>
-          )}
+          ) : session?.user?.id ? (
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleFollowToggle}
+                disabled={followLoading}
+                variant={isFollowing ? "secondary" : "default"}
+                size="lg"
+              >
+                {followLoading ? "..." : isFollowing ? "Unfollow" : "Follow"}
+              </Button>
+              <Button
+                onClick={handleChallenge}
+                variant="outline"
+                size="lg"
+              >
+                Challenge
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {/* Stats grid */}
@@ -181,6 +254,16 @@ export default function PublicProfilePage() {
           <StatCard label="Games Won" value={profile.gamesWon} />
           <StatCard label="Win Rate" value={`${winRate}%`} />
           <StatCard label="Best Streak" value={profile.bestStreak} />
+        </div>
+
+        {/* Follower/Following counts */}
+        <div className="flex gap-6 text-sm text-white/60">
+          <span>
+            <span className="font-semibold text-white">{followerCount}</span> Followers
+          </span>
+          <span>
+            <span className="font-semibold text-white">{followingCount}</span> Following
+          </span>
         </div>
 
         {/* Match history — only for own profile */}
