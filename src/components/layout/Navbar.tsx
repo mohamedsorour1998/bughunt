@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 
 const NAV_LINKS = [
   { href: "/play", label: "Play" },
+  { href: "/daily", label: "Daily" },
   { href: "/practice", label: "Practice" },
   { href: "/leaderboard", label: "Leaderboard" },
 ]
@@ -45,17 +46,19 @@ export function Navbar() {
         <nav className="hidden md:flex items-center gap-1">
           {NAV_LINKS.map(({ href, label }) => {
             const isActive = pathname === href || pathname.startsWith(href + "/")
+            const isDaily = href === "/daily"
             return (
               <Link
                 key={href}
                 href={href}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`relative px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-white/10 text-white"
                     : "text-white/60 hover:text-white hover:bg-white/5"
                 }`}
               >
                 {label}
+                {isDaily && <span className="ml-1 text-xs">🔥</span>}
               </Link>
             )
           })}
@@ -113,6 +116,7 @@ export function Navbar() {
           <nav className="flex flex-col gap-1">
             {NAV_LINKS.map(({ href, label }) => {
               const isActive = pathname === href || pathname.startsWith(href + "/")
+              const isDaily = href === "/daily"
               return (
                 <Link
                   key={href}
@@ -125,6 +129,7 @@ export function Navbar() {
                   }`}
                 >
                   {label}
+                  {isDaily && <span className="ml-1 text-xs">🔥</span>}
                 </Link>
               )
             })}
