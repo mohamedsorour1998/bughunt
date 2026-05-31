@@ -21,8 +21,16 @@ import {
 // ---------------------------------------------------------------------------
 // 1. Singleton DynamoDBDocument client
 // ---------------------------------------------------------------------------
+
+function selectDynamoDBRegion(): string {
+  const v = process.env.VERCEL_REGION ?? ""
+  if (v.startsWith("cdg") || v.startsWith("lhr") || v.startsWith("ams") || v.startsWith("fra")) return "eu-west-1"
+  if (v.startsWith("sin") || v.startsWith("hnd") || v.startsWith("icn") || v.startsWith("bom")) return "ap-southeast-1"
+  return process.env.AWS_REGION ?? "us-east-1"
+}
+
 const client = new DynamoDBClient({
-  region: process.env.AWS_REGION ?? "us-east-1",
+  region: selectDynamoDBRegion(),
 });
 
 export const ddb = DynamoDBDocumentClient.from(client, {
