@@ -12,6 +12,7 @@ import { getUser, updateUser, getRankFromElo, UserProfile } from "@/lib/users"
 import { getBug, markBugServed } from "@/lib/bugs"
 import { getCurrentSeason } from "@/lib/seasons"
 import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
+import { publishGameEvent } from "@/lib/redis"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -278,6 +279,13 @@ export async function resolveGame(gameId: string): Promise<void> {
     status: "completed",
     winnerId,
   })
+
+  publishGameEvent(gameId, {
+    type: "game_resolved",
+    winnerId,
+    p1EloAfter,
+    p2EloAfter,
+  }).catch(() => {/* Redis failure must not break game resolution */})
 
   // ---------------------------------------------------------------------------
   // Update player1 stats

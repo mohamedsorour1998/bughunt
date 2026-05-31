@@ -3,6 +3,7 @@ import { getGame, getGamePlayer, resolveGame } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 import { putItemIfNotExists, getItem } from "@/lib/dynamodb"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
+import { publishGameEvent } from "@/lib/redis"
 
 export async function POST(request: NextRequest) {
   const session = (await safeAuth()) ?? getTestSession(request) ?? await getTestSessionFromCookies()
@@ -74,6 +75,13 @@ export async function POST(request: NextRequest) {
   if (!written) {
     return NextResponse.json({ error: "Already submitted" }, { status: 409 })
   }
+
+  publishGameEvent(gameId, {
+    type: "player_submitted",
+    userId,
+    correct,
+    timeElapsedMs,
+  }).catch(() => {/* Redis failure must not break game flow */})
 
   // Check if game should resolve:
   // - Both players have submitted, OR
