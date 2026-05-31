@@ -1,0 +1,16 @@
+{
+  "name": "bughunt-leaderboard-updater",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx tsc --outDir dist --module commonjs --target es2020 --esModuleInterop true --strict true index.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1057.0",
+    "@aws-sdk/lib-dynamodb": "^3.1057.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "typescript": "^5.0.0"
+  }
+}
