@@ -234,6 +234,23 @@ export default function ResultPage() {
         newElo={newElo}
         newAchievements={newAchievements}
         onPlayAgain={handlePlayAgain}
+        opponentId={opponentRecord?.userId}
+        onRematch={() => {
+          // Poll for mutual rematch every 2s
+          const pollInterval = setInterval(async () => {
+            if (!opponentRecord?.userId) return
+            const res = await fetch(
+              `/api/game/rematch/status?opponentId=${opponentRecord.userId}`
+            )
+            const data = await res.json()
+            if (data.status === "matched" && data.gameId) {
+              clearInterval(pollInterval)
+              router.push(`/play?gameId=${data.gameId}`)
+            }
+          }, 2000)
+          // Auto-stop polling after 65s
+          setTimeout(() => clearInterval(pollInterval), 65_000)
+        }}
       />
     </main>
   )

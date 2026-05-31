@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { CodeViewer } from "@/components/game/CodeViewer"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -61,6 +62,8 @@ interface GameResultProps {
   newElo: number
   newAchievements?: string[]
   onPlayAgain: () => void
+  opponentId?: string        // present when the game had a human opponent
+  onRematch?: () => void     // called when rematch is initiated (for parent polling logic)
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +90,8 @@ export function GameResult({
   newElo,
   newAchievements,
   onPlayAgain,
+  opponentId,
+  onRematch,
 }: GameResultProps) {
   // Determine outcome
   const isWin = game.winnerId === myRecord.userId
@@ -99,6 +104,36 @@ export function GameResult({
   const eloSign = eloChange > 0 ? "+" : eloChange < 0 ? "" : "+"
   const eloDisplay = `${eloSign}${eloChange} Elo`
   const eloBefore = newElo - eloChange
+
+  // ---- Rematch state ----
+  const [rematchState, setRematchState] = useState<"idle" | "waiting" | "declined">("idle")
+  const [countdown, setCountdown] = useState(60)
+
+  useEffect(() => {
+    if (rematchState !== "waiting") return
+    if (countdown <= 0) {
+      setRematchState("declined")
+      return
+    }
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [rematchState, countdown])
+
+  async function handleRematch() {
+    if (!opponentId) return
+    setRematchState("waiting")
+    setCountdown(60)
+    try {
+      await fetch("/api/game/rematch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opponentId }),
+      })
+      onRematch?.()
+    } catch {
+      setRematchState("idle")
+    }
+  }
 
   // My answer label
   const myAnswerIdx = myRecord.answer
@@ -344,12 +379,26 @@ export function GameResult({
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* Play Again                                                           */}
+      {/* Actions                                                              */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex justify-center pb-4">
+      <div className="flex flex-col items-center gap-3 pb-4 sm:flex-row sm:justify-center">
         <Button size="lg" onClick={onPlayAgain} className="min-w-48">
           Play Again
         </Button>
+
+        {opponentId && (
+          <Button
+            size="lg"
+            variant="outline"
+            className="min-w-48"
+            onClick={rematchState === "idle" ? handleRematch : undefined}
+            disabled={rematchState === "waiting" || rematchState === "declined"}
+          >
+            {rematchState === "idle" && "Rematch"}
+            {rematchState === "waiting" && `Waiting... ${countdown}s`}
+            {rematchState === "declined" && "Opponent declined"}
+          </Button>
+        )}
       </div>
     </div>
   )
