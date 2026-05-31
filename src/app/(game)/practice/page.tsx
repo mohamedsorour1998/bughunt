@@ -10,6 +10,27 @@ import { CodeViewer } from "@/components/game/CodeViewer"
 import { AnswerOptions } from "@/components/game/AnswerOptions"
 
 // ---------------------------------------------------------------------------
+// Rating Widget (inline for practice mode)
+// ---------------------------------------------------------------------------
+
+function RatingWidget({ bugId }: { bugId: string }) {
+  const [rated, setRated] = useState(false)
+  async function rate(r: 1 | 2 | 3) {
+    await fetch(`/api/bugs/${bugId}/rate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rating: r }) })
+    setRated(true)
+  }
+  if (rated) return <p className="text-xs text-white/40">Thanks for your feedback!</p>
+  return (
+    <div className="flex items-center gap-2 text-sm text-white/60">
+      <span>Was this difficulty fair?</span>
+      <button onClick={() => rate(1)} className="hover:text-white px-2">Too easy</button>
+      <button onClick={() => rate(2)} className="hover:text-white px-2">Fair</button>
+      <button onClick={() => rate(3)} className="hover:text-white px-2">Too hard</button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -384,6 +405,9 @@ export default function PracticePage() {
 
                   <p className="text-sm text-white/70 leading-relaxed">{bug.explanation}</p>
                 </div>
+
+                {/* Difficulty rating */}
+                <RatingWidget bugId={bug.bugId} />
 
                 {/* Sign-in nudge for guests */}
                 {!session?.user && (

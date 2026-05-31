@@ -6,6 +6,27 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
+// Rating Widget
+// ---------------------------------------------------------------------------
+
+function RatingWidget({ bugId }: { bugId: string }) {
+  const [rated, setRated] = useState(false)
+  async function rate(r: 1 | 2 | 3) {
+    await fetch(`/api/bugs/${bugId}/rate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rating: r }) })
+    setRated(true)
+  }
+  if (rated) return <p className="text-xs text-white/40">Thanks for your feedback!</p>
+  return (
+    <div className="flex items-center gap-2 text-sm text-white/60">
+      <span>Was this difficulty fair?</span>
+      <button onClick={() => rate(1)} className="hover:text-white px-2">Too easy</button>
+      <button onClick={() => rate(2)} className="hover:text-white px-2">Fair</button>
+      <button onClick={() => rate(3)} className="hover:text-white px-2">Too hard</button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Achievement display names
 // ---------------------------------------------------------------------------
 
@@ -34,6 +55,7 @@ interface GameResultProps {
     player2Id: string
   }
   bug: {
+    bugId?: string
     language: string
     category: string
     difficulty: number
@@ -268,6 +290,11 @@ export function GameResult({
           </div>
         </div>
       </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Difficulty rating                                                    */}
+      {/* ------------------------------------------------------------------ */}
+      {(bug.bugId ?? game.gameId) && <RatingWidget bugId={bug.bugId ?? game.gameId} />}
 
       {/* ------------------------------------------------------------------ */}
       {/* Opponent comparison                                                  */}

@@ -466,6 +466,78 @@ function CreateBugSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Bug Health Section
+// ---------------------------------------------------------------------------
+type BugHealthEntry = {
+  bugId: string
+  language: string
+  category: string
+  difficulty: number
+  ratingCount: number
+  ratingAvg: number
+  misratingScore: number
+}
+
+function BugHealthSection() {
+  const [bugs, setBugs] = useState<BugHealthEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/admin/bugs/health")
+      .then(r => r.json())
+      .then(data => {
+        setBugs(data.bugs ?? [])
+        setLoading(false)
+      })
+      .catch(() => { setError("Failed to load bug health"); setLoading(false) })
+  }, [])
+
+  return (
+    <Card className="bg-gray-900 border-gray-800">
+      <CardHeader>
+        <CardTitle className="text-white text-lg">Bug Health (Community Ratings)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading && <p className="text-gray-400 text-sm">Loading...</p>}
+        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {!loading && bugs.length === 0 && <p className="text-gray-500 text-sm">No rating data yet.</p>}
+        {bugs.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="py-2 pr-3 text-gray-400 font-medium">Language</th>
+                  <th className="py-2 pr-3 text-gray-400 font-medium">Category</th>
+                  <th className="py-2 pr-3 text-gray-400 font-medium">Diff</th>
+                  <th className="py-2 pr-3 text-gray-400 font-medium">Avg Rating</th>
+                  <th className="py-2 pr-3 text-gray-400 font-medium">Votes</th>
+                  <th className="py-2 text-gray-400 font-medium">Misrating</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bugs.map(b => (
+                  <tr key={b.bugId} className="border-b border-gray-800 hover:bg-gray-800/50">
+                    <td className="py-2 pr-3 text-green-400">{b.language}</td>
+                    <td className="py-2 pr-3 text-gray-300">{b.category}</td>
+                    <td className="py-2 pr-3 text-yellow-400">{b.difficulty}</td>
+                    <td className="py-2 pr-3 text-white">{b.ratingAvg.toFixed(2)}</td>
+                    <td className="py-2 pr-3 text-gray-400">{b.ratingCount}</td>
+                    <td className={`py-2 font-semibold ${b.misratingScore > 0.5 ? "text-red-400" : "text-gray-400"}`}>
+                      {b.misratingScore.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Admin Page
 // ---------------------------------------------------------------------------
 export default function AdminPage() {
@@ -507,6 +579,7 @@ export default function AdminPage() {
         <GenerateBugSection />
         <PendingReviewSection />
         <CreateBugSection />
+        <BugHealthSection />
       </div>
     </main>
   )
