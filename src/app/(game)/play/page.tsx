@@ -128,6 +128,7 @@ export default function PlayPage() {
 
   // Polling ref — cleared on unmount and state changes
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const esRef = useRef<EventSource | null>(null)
 
   function stopPolling() {
     if (pollRef.current) {
@@ -136,16 +137,20 @@ export default function PlayPage() {
     }
   }
 
+  function stopSSE() {
+    if (esRef.current) { esRef.current.close(); esRef.current = null }
+  }
+
   // Cleanup on unmount
   useEffect(() => {
-    return () => stopPolling()
+    return () => { stopPolling(); stopSSE() }
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Gameplay polling — continues until game completes
+  // Gameplay polling fallback — used when EventSource is unavailable or errors
   // ---------------------------------------------------------------------------
 
-  const startGameplayPolling = useCallback(
+  const startPollingFallback = useCallback(
     (id: string) => {
       stopPolling()
       pollRef.current = setInterval(async () => {
@@ -183,6 +188,34 @@ export default function PlayPage() {
     },
     [session?.user?.id, router]
   )
+
+  // ---------------------------------------------------------------------------
+  // Gameplay EventSource — with polling fallback on onerror
+  // ---------------------------------------------------------------------------
+
+  const startGameplayPolling = useCallback((id: string) => {
+    stopPolling(); stopSSE()
+    if (typeof EventSource !== "undefined") {
+      const es = new EventSource(`/api/game/stream?gameId=${id}`)
+      esRef.current = es
+      es.onmessage = (event) => {
+        try {
+          const data: { type: string; userId?: string } = JSON.parse(event.data)
+          if (data.type === "player_submitted" && data.userId !== session?.user?.id) {
+            setOpponentSubmitted(true)
+          }
+          if (data.type === "game_resolved") {
+            stopSSE(); stopPolling()
+            setPlayState("completed")
+            router.push(`/game/result/${id}`)
+          }
+        } catch { /* ignore malformed */ }
+      }
+      es.onerror = () => { stopSSE(); startPollingFallback(id) }
+    } else {
+      startPollingFallback(id)
+    }
+  }, [session?.user?.id, router, startPollingFallback])
 
   // ---------------------------------------------------------------------------
   // Matchmaking — start polling when entering matchmaking state
@@ -258,7 +291,7 @@ export default function PlayPage() {
 
   async function handleCancel() {
     setCancelLoading(true)
-    stopPolling()
+    stopPolling(); stopSSE()
     try {
       await fetch("/api/game/cancel", { method: "POST" })
     } catch {
