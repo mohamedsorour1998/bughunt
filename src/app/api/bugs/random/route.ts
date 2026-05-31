@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBugForPractice, getBug } from "@/lib/bugs"
 import { getUser } from "@/lib/users"
 import { safeAuth, getTestSessionFromCookies } from "@/lib/test-auth"
+import { validateApiToken } from "@/lib/api-token"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -34,11 +35,20 @@ export async function GET(request: NextRequest) {
   }
 
   // Auth is optional — practice works without sign-in
-  const session = (await safeAuth()) ?? await getTestSessionFromCookies()
+  // Bearer token auth as alternative to session (for VS Code extension)
+  let userId: string | null = null
+  const authHeader = request.headers.get("authorization")
+  if (authHeader?.startsWith("Bearer ")) {
+    userId = await validateApiToken(authHeader.slice(7))
+  }
+  if (!userId) {
+    const session = (await safeAuth()) ?? await getTestSessionFromCookies()
+    userId = session?.user?.id ?? null
+  }
   let bugsSeen: string[] = []
 
-  if (session?.user?.id) {
-    const profile = await getUser(session.user.id)
+  if (userId) {
+    const profile = await getUser(userId)
     if (profile) {
       bugsSeen = profile.bugsSeen ?? []
     }

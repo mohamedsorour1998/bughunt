@@ -10,6 +10,116 @@ import { RankBadge } from "@/components/ui/RankBadge"
 import { EloChart } from "@/components/profile/EloChart"
 import { MatchHistory } from "@/components/profile/MatchHistory"
 
+// ---------------------------------------------------------------------------
+// API Token Section
+// ---------------------------------------------------------------------------
+
+function ApiTokenSection() {
+  const [token, setToken] = useState<string | null>(null)
+  const [exists, setExists] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/user/token")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.created && data.token) {
+          setToken(data.token)
+          setExists(true)
+        } else if (data.exists) {
+          setExists(true)
+          setToken(null)
+        }
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [])
+
+  async function handleRegenerate() {
+    setLoading(true)
+    const res = await fetch("/api/user/token", { method: "POST" })
+    const data = await res.json()
+    if (data.token) {
+      setToken(data.token)
+      setExists(true)
+    }
+    setLoading(false)
+  }
+
+  async function handleRevoke() {
+    setLoading(true)
+    await fetch("/api/user/token", { method: "DELETE" })
+    setToken(null)
+    setExists(false)
+    setLoading(false)
+  }
+
+  function handleCopy() {
+    if (token) {
+      navigator.clipboard.writeText(token)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/50">
+        VS Code Extension Token
+      </h2>
+      <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-3">
+        {loading ? (
+          <p className="text-sm text-white/40">Loading...</p>
+        ) : token ? (
+          <>
+            <p className="text-xs text-yellow-300/80 font-medium">
+              Store this token securely — it will not be shown again.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-green-300 break-all">
+                {token}
+              </code>
+              <Button size="sm" variant="outline" onClick={handleCopy} className="shrink-0">
+                {copied ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={handleRegenerate}>
+                Regenerate
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleRevoke} className="border-red-500/30 text-red-400 hover:bg-red-900/20">
+                Revoke
+              </Button>
+            </div>
+          </>
+        ) : exists ? (
+          <>
+            <p className="text-sm text-white/60">
+              A token is active. Regenerate to get a new one (old token will be invalidated).
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleRegenerate}>
+                Regenerate Token
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleRevoke} className="border-red-500/30 text-red-400 hover:bg-red-900/20">
+                Revoke
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-white/60">No API token yet.</p>
+            <Button size="sm" onClick={handleRegenerate}>
+              Generate Token
+            </Button>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 type UserProfile = {
   userId: string
   displayName: string
@@ -219,6 +329,9 @@ export default function ProfilePage() {
             initialEntries={historyEntries}
           />
         </section>
+
+        {/* API Token */}
+        <ApiTokenSection />
       </div>
     </main>
   )
