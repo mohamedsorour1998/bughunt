@@ -125,16 +125,27 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
 
   if (items.length === 0) return null
 
-  // The META item has all game fields; the ACTIVE_PLAYER items are tracking only
+  // ACTIVE_PLAYER tracking items mean this user was matched as the opponent in
+  // an active game — those take priority over a stale waiting META item.
+  const trackingItems = items.filter((i) => (i.sk as string).startsWith("ACTIVE_PLAYER#"))
+  for (const tracking of trackingItems) {
+    const gid = (tracking.gsi1sk as string) ?? (tracking.gameId as string)
+    if (gid) {
+      const g = await getGame(gid)
+      if (g && g.status === "active") return g
+    }
+  }
+
+  // Fall back to the META item (this user is player1 in a waiting or active game)
   for (const item of items) {
     if (item.sk === "META") {
       return itemToGame(item)
     }
   }
 
-  // Try fetching the game from the gameId stored in the GSI item
-  const trackingItem = items[0]
-  const gameId = trackingItem.gsi1sk as string ?? trackingItem.gameId as string
+  // Last resort: derive gameId from the first GSI item
+  const fallback = items[0]
+  const gameId = (fallback.gsi1sk as string) ?? (fallback.gameId as string)
   if (!gameId) return null
 
   return getGame(gameId)

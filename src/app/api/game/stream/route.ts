@@ -5,6 +5,9 @@ import { redis } from "@/lib/redis"
 
 export const runtime = "nodejs"
 
+const POLL_INTERVAL_MS = 2000
+const HEARTBEAT_INTERVAL_MS = 15000
+
 export async function GET(req: NextRequest) {
   const session =
     (await safeAuth()) ?? getTestSession(req) ?? (await getTestSessionFromCookies())
@@ -28,71 +31,95 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // Already completed — send final event immediately
+  // Already completed — send final event immediately and close
   if (game.status === "completed") {
     const body = `data: ${JSON.stringify({ type: "game_resolved", gameId })}\n\n`
     return new Response(body, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
     })
   }
 
-  const channel = `game:${gameId}`
+  // Shared mutable state accessible to both start() and cancel()
+  const state = {
+    closed: false,
+    pollTimer: null as ReturnType<typeof setInterval> | null,
+    heartbeatTimer: null as ReturnType<typeof setInterval> | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    subscriber: null as any,
+  }
 
-  // Hoist subscriber so cancel() can clean it up on client disconnect
-  let subscriber: ReturnType<typeof redis.subscribe> | null = null
+  function cleanup() {
+    state.closed = true
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null }
+    if (state.heartbeatTimer) { clearInterval(state.heartbeatTimer); state.heartbeatTimer = null }
+    if (state.subscriber) {
+      try { state.subscriber.unsubscribe?.().catch?.(() => {}) } catch { /* ignore */ }
+      try { state.subscriber.removeAllListeners?.() } catch { /* ignore */ }
+      state.subscriber = null
+    }
+  }
 
   const stream = new ReadableStream({
     start(controller) {
-      try {
-        subscriber = redis.subscribe<string>(channel)
+      function send(payload: object) {
+        if (state.closed) return
+        try { controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`)) } catch { /* closed */ }
+      }
 
-        subscriber.on("message", (data) => {
-          try {
-            const raw = typeof data.message === "string" ? data.message : JSON.stringify(data.message)
-            controller.enqueue(new TextEncoder().encode(`data: ${raw}\n\n`))
-
-            let parsed: { type?: string } = {}
-            try {
-              parsed = JSON.parse(raw)
-            } catch {
-              /* ignore parse errors */
-            }
-
-            if (parsed.type === "game_resolved") {
-              subscriber?.unsubscribe().catch(() => {/* ignore */})
-              subscriber?.removeAllListeners()
-              subscriber = null
-              try {
-                controller.close()
-              } catch {
-                /* already closed */
-              }
-            }
-          } catch {
-            /* ignore enqueue errors if stream is closed */
-          }
-        })
-      } catch {
+      function resolve() {
+        send({ type: "game_resolved", gameId })
+        cleanup()
         try { controller.close() } catch { /* already closed */ }
+      }
+
+      function startHeartbeat() {
+        state.heartbeatTimer = setInterval(() => {
+          if (state.closed) return
+          try { controller.enqueue(new TextEncoder().encode(": heartbeat\n\n")) } catch { /* closed */ }
+        }, HEARTBEAT_INTERVAL_MS)
+      }
+
+      // DynamoDB polling — reliable fallback when Redis pub/sub is unavailable
+      function startPolling() {
+        state.pollTimer = setInterval(async () => {
+          if (state.closed) return
+          try {
+            const g = await getGame(gameId)
+            if (g?.status === "completed") resolve()
+          } catch { /* ignore transient errors */ }
+        }, POLL_INTERVAL_MS)
+        startHeartbeat()
+      }
+
+      // Try Redis pub/sub first; fall back to DynamoDB polling
+      const hasSubscribe = typeof (redis as Record<string, unknown>).subscribe === "function"
+      if (hasSubscribe) {
+        try {
+          state.subscriber = (redis as Record<string, (...a: unknown[]) => unknown>).subscribe<string>(`game:${gameId}`)
+          state.subscriber.on("message", (data: { message?: string }) => {
+            if (state.closed) return
+            try {
+              const raw = typeof data.message === "string" ? data.message : JSON.stringify(data.message)
+              const parsed = JSON.parse(raw) as { type?: string }
+              send(parsed)
+              if (parsed.type === "game_resolved") resolve()
+            } catch { /* ignore */ }
+          })
+          startHeartbeat()
+        } catch {
+          // Redis subscribe unavailable — fall back to polling
+          startPolling()
+        }
+      } else {
+        startPolling()
       }
     },
     cancel() {
-      // Called when client disconnects — clean up subscription
-      subscriber?.unsubscribe().catch(() => {/* ignore */})
-      subscriber?.removeAllListeners()
-      subscriber = null
+      cleanup()
     },
   })
 
   return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
   })
 }

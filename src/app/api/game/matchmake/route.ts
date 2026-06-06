@@ -19,9 +19,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
-  // Check if user already has an active game
+  // Check if user already has an active/waiting game
   const activeGame = await getActiveGameForUser(userId)
   if (activeGame) {
+    // If still waiting, ensure we're in the Redis queue so opponents can find us
+    if (activeGame.status === "waiting") {
+      const userProfile = await getUser(userId)
+      if (userProfile) await enqueuePlayer(userId, userProfile.elo).catch(() => {})
+    }
     return NextResponse.json({ gameId: activeGame.gameId, status: activeGame.status })
   }
 
