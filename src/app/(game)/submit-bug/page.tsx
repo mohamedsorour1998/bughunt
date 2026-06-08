@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { CodeViewer } from "@/components/game/CodeViewer"
@@ -44,8 +44,11 @@ export default function SubmitBugPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (status === "unauthenticated") router.push("/login")
+  }, [status, router])
+
   if (status === "unauthenticated") {
-    router.push("/login")
     return null
   }
 

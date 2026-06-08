@@ -1,10 +1,11 @@
 // src/app/api/social/challenge/respond/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
-import { getItem, updateItem } from "@/lib/dynamodb"
+import { getItem, ddb, TABLE_NAME } from "@/lib/dynamodb"
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb"
 import { sendNotification } from "@/lib/notifications"
 import { createGame } from "@/lib/game"
-import { selectBugForGame } from "@/lib/bugs"
+import { selectBugsForGame } from "@/lib/bugs"
 import { getUser } from "@/lib/users"
 
 export async function POST(req: NextRequest) {
@@ -36,8 +37,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Challenge already resolved" }, { status: 409 })
   }
 
+  if (item.expiresAt != null && Date.now() >= (item.expiresAt as number) * 1000) {
+    return NextResponse.json({ error: "Challenge expired" }, { status: 404 })
+  }
+
+  const newStatus = action === "decline" ? "declined" : "accepted"
+
+  // Conditional transition guards against two concurrent accept/decline calls both
+  // passing the status check above and (for accept) both spawning a game.
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `CHALLENGE#${challengeId}`, sk: "META" },
+      UpdateExpression: "SET #status = :newStatus",
+      ConditionExpression: "#status = :pending",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":pending": "pending", ":newStatus": newStatus },
+    }))
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      return NextResponse.json({ error: "Challenge already responded to" }, { status: 409 })
+    }
+    throw err
+  }
+
   if (action === "decline") {
-    await updateItem(`CHALLENGE#${challengeId}`, "META", { status: "declined" })
     await sendNotification(item.challengerId as string, {
       type: "challenge_declined",
       fromUserId: userId,
@@ -48,27 +72,25 @@ export async function POST(req: NextRequest) {
   }
 
   // Accept: create a game between the two players
-  await updateItem(`CHALLENGE#${challengeId}`, "META", { status: "accepted" })
-
   const [challengerProfile, challengedProfile] = await Promise.all([
     getUser(item.challengerId as string),
     getUser(userId),
   ])
 
-  const bug = await selectBugForGame(
+  const bugs = await selectBugsForGame(
     Math.round(((challengerProfile?.elo ?? 1200) + (challengedProfile?.elo ?? 1200)) / 2),
     challengerProfile?.bugsSeen ?? [],
     challengedProfile?.bugsSeen ?? []
   )
 
-  if (!bug) {
+  if (!bugs) {
     return NextResponse.json({ error: "No bug available" }, { status: 503 })
   }
 
   const game = await createGame(
     item.challengerId as string,
     userId,
-    bug.bugId
+    bugs.map((b) => b.bugId)
   )
 
   await sendNotification(item.challengerId as string, {

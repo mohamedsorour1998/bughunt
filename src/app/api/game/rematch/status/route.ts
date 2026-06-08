@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getItem, deleteItem } from "@/lib/dynamodb"
 import { getUser } from "@/lib/users"
-import { selectBugForGame } from "@/lib/bugs"
+import { selectBugsForGame } from "@/lib/bugs"
 import { createGame } from "@/lib/game"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
@@ -58,13 +58,13 @@ export async function GET(request: NextRequest) {
   }
 
   const avgElo = Math.round((myProfile.elo + opponentProfile.elo) / 2)
-  const bug = await selectBugForGame(avgElo, myProfile.bugsSeen, opponentProfile.bugsSeen)
+  const bugs = await selectBugsForGame(avgElo, myProfile.bugsSeen, opponentProfile.bugsSeen)
 
-  if (!bug) {
+  if (!bugs) {
     return NextResponse.json({ error: "No bug available" }, { status: 503 })
   }
 
-  const game = await createGame(userId, opponentId, bug.bugId)
+  const game = await createGame(userId, opponentId, bugs.map((b) => b.bugId))
 
   // Clean up rematch items (best-effort)
   await Promise.all([

@@ -20,6 +20,28 @@ export async function enqueuePlayer(userId: string, elo: number): Promise<void> 
   await redis.expire(`queue:${range}`, 300)
 }
 
+/**
+ * Find an opponent and atomically claim them by removing them from the queue
+ * via zrem in the same step as selection — eliminates the peek-then-dequeue
+ * race where two concurrent matchmake calls could both pick the same opponent.
+ * Returns the claimed opponent's userId, or null if no one could be claimed.
+ */
+export async function findAndClaimMatch(userId: string, elo: number): Promise<string | null> {
+  const range = eloRangeBucket(elo)
+  const ranges = [...new Set([Math.max(0, range - 200), range, range + 200])]
+  for (const r of ranges) {
+    const members = await redis.zrange(`queue:${r}`, 0, 9)
+    for (const m of members) {
+      if (m === userId) continue
+      const removed = await redis.zrem(`queue:${r}`, m)
+      // removed > 0 means we won the race for this opponent; otherwise someone
+      // else claimed them first — try the next candidate.
+      if (removed > 0) return m as string
+    }
+  }
+  return null
+}
+
 export async function findMatch(userId: string, elo: number): Promise<string | null> {
   const range = eloRangeBucket(elo)
   const ranges = [...new Set([Math.max(0, range - 200), range, range + 200])]
@@ -37,7 +59,8 @@ export async function dequeuePlayer(userId: string, elo: number): Promise<void> 
 }
 
 export type GameEvent =
-  | { type: "player_submitted"; userId: string; correct: boolean; timeElapsedMs: number }
+  | { type: "player_submitted"; userId: string; roundIndex: number; correct: boolean; timeElapsedMs: number }
+  | { type: "round_advanced"; round: number }
   | { type: "game_resolved"; winnerId: string | null; p1EloAfter: number; p2EloAfter: number }
 
 export type NotificationEvent =

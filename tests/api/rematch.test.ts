@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test"
 import assert from "node:assert/strict"
 import { NextRequest } from "next/server"
-import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstActiveBugId } from "../helpers/db"
+import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstNActiveBugIds } from "../helpers/db"
 import { TEST_USER_1, TEST_USER_2 } from "../helpers/fixtures"
 import { POST as rematch } from "../../src/app/api/game/rematch/route"
 import { GET as rematchStatus } from "../../src/app/api/game/rematch/status/route"
@@ -26,12 +26,12 @@ function anonNextReq(url: string, method = "GET", body?: unknown): NextRequest {
   })
 }
 
-let testBugId: string
+let testBugIds: string[]
 const PRIVATE_GAME_ID = `test-private-${Date.now()}`
 
 before(async () => {
   await seedTestUsers()
-  testBugId = await getFirstActiveBugId()
+  testBugIds = await getFirstNActiveBugIds(3)
 })
 
 after(async () => {
@@ -126,7 +126,7 @@ test("POST /api/game/join/[gameId] returns 404 for nonexistent game", async () =
 })
 
 test("POST /api/game/join/[gameId] returns 400 for non-private game", async () => {
-  await seedTestGame(PRIVATE_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugId, "active")
+  await seedTestGame(PRIVATE_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugIds, "active")
   const req = authNextReq(`http://localhost/api/game/join/${PRIVATE_GAME_ID}`, TEST_USER_2.userId, "POST")
   const res = await joinGame(req, { params: Promise.resolve({ gameId: PRIVATE_GAME_ID }) })
   assert.equal(res.status, 400)

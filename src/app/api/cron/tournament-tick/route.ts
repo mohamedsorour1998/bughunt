@@ -24,12 +24,8 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // Advance completed rounds
-    if (
-      t.status === "round_1" ||
-      t.status === "round_2" ||
-      t.status === "final"
-    ) {
+    // Advance completed rounds (status is "round_<n>" for any bracket size, or "final")
+    if (t.status.startsWith("round_") || t.status === "final") {
       await advanceTournament(t.tournamentId)
       results.push(`${t.tournamentId}: advance attempted`)
     }

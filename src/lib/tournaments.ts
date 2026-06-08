@@ -3,7 +3,9 @@ import { v4 as uuidv4 } from "uuid"
 import {
   getItem,
   putItem,
+  putItemIfNotExists,
   updateItem,
+  deleteItem,
   queryItems,
   ddb,
   TABLE_NAME,
@@ -18,8 +20,7 @@ export type TournamentStatus =
   | "created"
   | "registration_open"
   | "registration_closed"
-  | "round_1"
-  | "round_2"
+  | `round_${number}`
   | "final"
   | "completed"
 
@@ -116,19 +117,10 @@ export async function registerForTournament(
     return { success: false, error: "Registration is not open" }
   }
 
-  const registeredPlayers = (tournament.registeredPlayers as string[]) ?? []
-  if (registeredPlayers.length >= tournament.maxPlayers) {
-    return { success: false, error: "Tournament is full" }
-  }
-
-  if (registeredPlayers.includes(userId)) {
-    return { success: false, error: "Already registered" }
-  }
-
   const now = Date.now()
 
-  // Write player registration item
-  await putItem({
+  // Atomically gate duplicate registration — only one writer can create this item
+  const created = await putItemIfNotExists({
     pk: `TOURNAMENT#${tournamentId}`,
     sk: `PLAYER#${userId}`,
     tournamentId,
@@ -139,17 +131,31 @@ export async function registerForTournament(
     currentRound: 0,
     eliminated: false,
   })
+  if (!created) {
+    return { success: false, error: "Already registered" }
+  }
 
-  // Append userId to registeredPlayers list on META
-  await ddb.send(
-    new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: { pk: `TOURNAMENT#${tournamentId}`, sk: "META" },
-      UpdateExpression: "SET #rp = list_append(#rp, :uid)",
-      ExpressionAttributeNames: { "#rp": "registeredPlayers" },
-      ExpressionAttributeValues: { ":uid": [userId] },
-    })
-  )
+  // Conditionally append to registeredPlayers only if there's still room;
+  // ties the capacity check to the write to avoid a check-then-act race
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: `TOURNAMENT#${tournamentId}`, sk: "META" },
+        UpdateExpression: "SET #rp = list_append(#rp, :new)",
+        ConditionExpression: "size(#rp) < :max",
+        ExpressionAttributeNames: { "#rp": "registeredPlayers" },
+        ExpressionAttributeValues: { ":new": [userId], ":max": tournament.maxPlayers },
+      })
+    )
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      // Roll back the PLAYER# item we just created since the tournament is full
+      await deleteItem(`TOURNAMENT#${tournamentId}`, `PLAYER#${userId}`)
+      return { success: false, error: "Tournament is full" }
+    }
+    throw err
+  }
 
   return { success: true }
 }
@@ -198,9 +204,9 @@ export async function generateBracket(tournamentId: string): Promise<void> {
     })
   }
 
-  // Handle bye if odd player count — highest seed advances automatically
+  // Handle bye if odd player count — the unpaired middle seed advances automatically
   if (numPlayers % 2 === 1) {
-    const byePlayer = players[0]
+    const byePlayer = players[matchCount]
     const byeMatchId = String(matchCount + 1).padStart(2, "0")
     await putItem({
       pk: `TOURNAMENT#${tournamentId}`,
@@ -302,8 +308,11 @@ export async function advanceTournament(tournamentId: string): Promise<void> {
     })
   }
 
+  // The next round is the final iff it will produce exactly one match —
+  // this is correct for any bracket size, not just <=8 (3-round) brackets
+  const nextRoundMatchCount = Math.floor(winners.length / 2)
   const nextStatus: TournamentStatus =
-    nextRound === 2 ? "round_2" : nextRound === 3 ? "final" : "round_1"
+    nextRoundMatchCount === 1 ? "final" : `round_${nextRound}`
 
   await updateItem(`TOURNAMENT#${tournamentId}`, "META", {
     status: nextStatus,

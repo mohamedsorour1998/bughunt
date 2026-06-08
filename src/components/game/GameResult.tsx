@@ -45,6 +45,32 @@ const ACHIEVEMENT_NAMES: Record<string, string> = {
 // Types
 // ---------------------------------------------------------------------------
 
+export interface RoundAnswer {
+  bugId: string
+  answer: number | null
+  correct: boolean | null
+  submittedAt: number | null
+  timeElapsedMs: number | null
+}
+
+export interface ResultBug {
+  bugId?: string
+  language: string
+  category: string
+  difficulty: number
+  buggyCode: string
+  bugLine: number
+  options: [string, string, string, string]
+  correctAnswer: number
+  explanation: string
+  hint: string
+}
+
+export interface ResultPlayerRecord {
+  userId: string
+  answers: RoundAnswer[]
+}
+
 interface GameResultProps {
   game: {
     gameId: string
@@ -54,32 +80,9 @@ interface GameResultProps {
     player1Id: string
     player2Id: string
   }
-  bug: {
-    bugId?: string
-    language: string
-    category: string
-    difficulty: number
-    buggyCode: string
-    bugLine: number
-    options: [string, string, string, string]
-    correctAnswer: number
-    explanation: string
-    hint: string
-  }
-  myRecord: {
-    userId: string
-    answer: number | null
-    correct: boolean | null
-    submittedAt: number | null
-    timeElapsedMs: number | null
-  }
-  opponentRecord: {
-    userId: string
-    answer: number | null
-    correct: boolean | null
-    submittedAt: number | null
-    timeElapsedMs: number | null
-  } | null
+  bugs: ResultBug[]
+  myRecord: ResultPlayerRecord
+  opponentRecord: ResultPlayerRecord | null
   eloChange: number
   newElo: number
   newAchievements?: string[]
@@ -97,6 +100,24 @@ function formatTime(ms: number | null): string {
   return (ms / 1000).toFixed(1) + "s"
 }
 
+function aggregate(answers: RoundAnswer[]): { correctCount: number; totalTimeMs: number } {
+  let correctCount = 0
+  let totalTimeMs = 0
+  let anyMissing = false
+  for (const a of answers) {
+    if (a.correct) correctCount++
+    if (a.timeElapsedMs != null) totalTimeMs += a.timeElapsedMs
+    else anyMissing = true
+  }
+  return { correctCount, totalTimeMs: anyMissing ? Infinity : totalTimeMs }
+}
+
+function formatTotalTime(answers: RoundAnswer[]): string {
+  const { totalTimeMs } = aggregate(answers)
+  if (!Number.isFinite(totalTimeMs)) return "—"
+  return (totalTimeMs / 1000).toFixed(1) + "s"
+}
+
 const OPTION_LABELS = ["A", "B", "C", "D"] as const
 
 // ---------------------------------------------------------------------------
@@ -105,7 +126,7 @@ const OPTION_LABELS = ["A", "B", "C", "D"] as const
 
 export function GameResult({
   game,
-  bug,
+  bugs,
   myRecord,
   opponentRecord,
   eloChange,
@@ -126,6 +147,9 @@ export function GameResult({
   const eloSign = eloChange > 0 ? "+" : eloChange < 0 ? "" : "+"
   const eloDisplay = `${eloSign}${eloChange} Elo`
   const eloBefore = newElo - eloChange
+
+  const myAggregate = aggregate(myRecord.answers)
+  const opponentAggregate = opponentRecord ? aggregate(opponentRecord.answers) : null
 
   // ---- Rematch state ----
   const [rematchState, setRematchState] = useState<"idle" | "waiting" | "declined">("idle")
@@ -156,13 +180,6 @@ export function GameResult({
       setRematchState("idle")
     }
   }
-
-  // My answer label
-  const myAnswerIdx = myRecord.answer
-  const correctIdx = bug.correctAnswer
-  const myAnswerLabel = myAnswerIdx !== null ? OPTION_LABELS[myAnswerIdx] : null
-  const myAnswerText = myAnswerIdx !== null ? bug.options[myAnswerIdx] : null
-  const correctAnswerText = bug.options[correctIdx]
 
   // Banner config
   const bannerConfig = {
@@ -211,135 +228,140 @@ export function GameResult({
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Code section with bug revealed                                       */}
+      {/* Aggregate summary                                                    */}
       {/* ------------------------------------------------------------------ */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <span className="rounded-md border border-red-500/40 bg-red-900/30 px-2 py-1 text-xs font-semibold text-red-300">
-            Bug on line {bug.bugLine}
-          </span>
-          <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs font-medium text-white/50 uppercase">
-            {bug.language}
-          </span>
-          <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/40">
-            {bug.category}
-          </span>
-        </div>
-        <CodeViewer
-          code={bug.buggyCode}
-          language={bug.language}
-          bugLine={bug.bugLine}
-          revealed={true}
-        />
-      </div>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Answer breakdown                                                     */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-white/50">
-          Answer Breakdown
+      <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/50">
+          Match Summary
         </h2>
-
-        {/* Your answer */}
-        {myAnswerIdx !== null && myAnswerText !== null ? (
-          <div
-            className={cn(
-              "flex items-start gap-3 rounded-lg border p-4",
-              myRecord.correct
-                ? "border-green-500/40 bg-green-900/20"
-                : "border-red-500/40 bg-red-900/20"
-            )}
-          >
-            <span className="mt-0.5 text-lg leading-none">
-              {myRecord.correct ? "✅" : "❌"}
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+          <div>
+            <span className="text-white/40">You: </span>
+            <span className="font-semibold text-white">
+              {myAggregate.correctCount}/{bugs.length} correct
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-white/50">Your answer</p>
-              <p className="mt-0.5 font-medium text-white">
-                <span className="mr-2 font-mono text-sm text-white/60">
-                  [{myAnswerLabel}]
-                </span>
-                {myAnswerText}
-              </p>
-              {!myRecord.correct && (
-                <p className="mt-1 text-xs text-red-300">
-                  This was not the bug on line {bug.bugLine}.
-                </p>
-              )}
-            </div>
+            <span className="ml-2 text-white/40">in {formatTotalTime(myRecord.answers)}</span>
           </div>
-        ) : (
-          <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-            <p className="text-sm text-white/40">You did not submit an answer.</p>
-          </div>
-        )}
-
-        {/* Correct answer */}
-        <div className="flex items-start gap-3 rounded-lg border border-green-500/30 bg-green-900/10 p-4">
-          <span className="mt-0.5 text-lg leading-none">✅</span>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-white/50">Correct answer</p>
-            <p className="mt-0.5 font-medium text-white">
-              <span className="mr-2 font-mono text-sm text-white/60">
-                [{OPTION_LABELS[correctIdx]}]
+          {opponentRecord && opponentAggregate && (
+            <div>
+              <span className="text-white/40">Opponent: </span>
+              <span className="font-semibold text-white">
+                {opponentAggregate.correctCount}/{bugs.length} correct
               </span>
-              {correctAnswerText}
-            </p>
-            <p className="mt-2 text-sm text-white/70">{bug.explanation}</p>
-          </div>
+              <span className="ml-2 text-white/40">in {formatTotalTime(opponentRecord.answers)}</span>
+            </div>
+          )}
+          {opponentRecord && opponentAggregate && (
+            <span className="text-white/50">
+              {isDraw
+                ? "Exact tie — draw"
+                : myAggregate.correctCount !== opponentAggregate.correctCount
+                ? isWin
+                  ? "You won on correct answers"
+                  : "Opponent won on correct answers"
+                : isWin
+                ? "You won on time (tiebreak)"
+                : "Opponent won on time (tiebreak)"}
+            </span>
+          )}
         </div>
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Difficulty rating                                                    */}
+      {/* Per-round breakdown                                                  */}
       {/* ------------------------------------------------------------------ */}
-      {(bug.bugId ?? game.gameId) && <RatingWidget bugId={bug.bugId ?? game.gameId} />}
+      {bugs.map((bug, i) => {
+        const myAnswer = myRecord.answers[i]
+        const opponentAnswer = opponentRecord?.answers[i] ?? null
+        const myAnswerIdx = myAnswer?.answer ?? null
+        const correctIdx = bug.correctAnswer
+        const myAnswerLabel = myAnswerIdx !== null ? OPTION_LABELS[myAnswerIdx] : null
+        const myAnswerText = myAnswerIdx !== null ? bug.options[myAnswerIdx] : null
+        const correctAnswerText = bug.options[correctIdx]
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Opponent comparison                                                  */}
-      {/* ------------------------------------------------------------------ */}
-      {opponentRecord && (
-        <div className="rounded-xl border border-white/10 bg-white/5 p-5">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/50">
-            Opponent
-          </h2>
-
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">
-                {opponentRecord.correct ? "✅" : opponentRecord.answer !== null ? "❌" : "⏱️"}
+        return (
+          <div key={bug.bugId ?? i} className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-xs font-semibold text-white">
+                Round {i + 1} of {bugs.length}
               </span>
-              <span className="font-medium text-white">
-                {opponentRecord.correct
-                  ? "Correct"
-                  : opponentRecord.answer !== null
-                  ? "Wrong"
-                  : "Did not submit"}
+              <span className="rounded-md border border-red-500/40 bg-red-900/30 px-2 py-1 text-xs font-semibold text-red-300">
+                Bug on line {bug.bugLine}
+              </span>
+              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs font-medium text-white/50 uppercase">
+                {bug.language}
+              </span>
+              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/40">
+                {bug.category}
+              </span>
+              <span className="ml-auto flex items-center gap-2 text-sm">
+                <span title="You">{myAnswer?.correct ? "✅" : "❌"}</span>
+                {opponentRecord && (
+                  <span title="Opponent">
+                    {opponentAnswer?.correct ? "✅" : opponentAnswer?.answer != null ? "❌" : "⏱️"}
+                  </span>
+                )}
               </span>
             </div>
 
-            {opponentRecord.timeElapsedMs !== null && (
-              <span className="text-sm text-white/60">
-                in {formatTime(opponentRecord.timeElapsedMs)}
-              </span>
+            <CodeViewer
+              code={bug.buggyCode}
+              language={bug.language}
+              bugLine={bug.bugLine}
+              revealed={true}
+            />
+
+            {/* Your answer */}
+            {myAnswerIdx !== null && myAnswerText !== null ? (
+              <div
+                className={cn(
+                  "flex items-start gap-3 rounded-lg border p-4",
+                  myAnswer?.correct
+                    ? "border-green-500/40 bg-green-900/20"
+                    : "border-red-500/40 bg-red-900/20"
+                )}
+              >
+                <span className="mt-0.5 text-lg leading-none">
+                  {myAnswer?.correct ? "✅" : "❌"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-white/50">Your answer</p>
+                  <p className="mt-0.5 font-medium text-white">
+                    <span className="mr-2 font-mono text-sm text-white/60">
+                      [{myAnswerLabel}]
+                    </span>
+                    {myAnswerText}
+                  </p>
+                  {myAnswer?.timeElapsedMs != null && (
+                    <p className="mt-1 text-xs text-white/40">in {formatTime(myAnswer.timeElapsedMs)}</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                <p className="text-sm text-white/40">You did not submit an answer.</p>
+              </div>
             )}
 
-            {/* Tiebreaker note */}
-            {myRecord.correct && opponentRecord.correct && (
-              <span className="ml-auto text-sm text-white/50">
-                {(myRecord.timeElapsedMs ?? Infinity) <
-                (opponentRecord.timeElapsedMs ?? Infinity)
-                  ? "You were faster"
-                  : (myRecord.timeElapsedMs ?? Infinity) >
-                    (opponentRecord.timeElapsedMs ?? Infinity)
-                  ? "Opponent was faster"
-                  : "Exact tie"}
-              </span>
-            )}
+            {/* Correct answer */}
+            <div className="flex items-start gap-3 rounded-lg border border-green-500/30 bg-green-900/10 p-4">
+              <span className="mt-0.5 text-lg leading-none">✅</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-white/50">Correct answer</p>
+                <p className="mt-0.5 font-medium text-white">
+                  <span className="mr-2 font-mono text-sm text-white/60">
+                    [{OPTION_LABELS[correctIdx]}]
+                  </span>
+                  {correctAnswerText}
+                </p>
+                <p className="mt-2 text-sm text-white/70">{bug.explanation}</p>
+              </div>
+            </div>
+
+            {(bug.bugId ?? `${game.gameId}-${i}`) && <RatingWidget bugId={bug.bugId ?? `${game.gameId}-${i}`} />}
           </div>
-        </div>
-      )}
+        )
+      })}
 
       {/* ------------------------------------------------------------------ */}
       {/* Stats row                                                            */}
@@ -348,10 +370,10 @@ export function GameResult({
         {/* Your time */}
         <div className="flex flex-col items-center gap-1 rounded-xl border border-white/10 bg-white/5 p-4">
           <span className="text-xs font-medium uppercase tracking-wider text-white/40">
-            Your Time
+            Your Total Time
           </span>
           <span className="font-mono text-lg font-bold text-white">
-            {formatTime(myRecord.timeElapsedMs)}
+            {formatTotalTime(myRecord.answers)}
           </span>
         </div>
 

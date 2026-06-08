@@ -9,7 +9,7 @@ import {
   ddb,
   TABLE_NAME,
 } from "@/lib/dynamodb"
-import { UpdateCommand } from "@aws-sdk/lib-dynamodb"
+import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +31,8 @@ export type Bug = {
   source: string
   status: "active" | "pending_review"
   createdAt: number
+  ratingCount?: number
+  ratingSum?: number
 }
 
 export type BugIndex = {
@@ -43,6 +45,10 @@ export type BugIndex = {
     "4": string[]
     "5": string[]
   }
+  // Optimistic-concurrency token — incremented on every write; callers must
+  // pass the version they read back to putBugIndex so concurrent mutations
+  // can detect and retry instead of silently clobbering each other.
+  version: number
 }
 
 // ---------------------------------------------------------------------------
@@ -69,11 +75,17 @@ export async function getBug(bugId: string): Promise<Bug | null> {
 // getBugIndex
 // ---------------------------------------------------------------------------
 
-/** Read the BUG#INDEX item from DynamoDB (with 5-minute in-memory cache). */
-export async function getBugIndex(): Promise<BugIndex | null> {
-  const cached = cacheGet(BUG_INDEX_CACHE_KEY)
-  if (cached !== undefined) {
-    return cached as BugIndex | null
+/**
+ * Read the BUG#INDEX item from DynamoDB (with 5-minute in-memory cache).
+ * Pass `bypassCache: true` to force a fresh read — required before retrying
+ * a conditional write so we don't re-apply a mutation against a stale version.
+ */
+export async function getBugIndex(opts?: { bypassCache?: boolean }): Promise<BugIndex | null> {
+  if (!opts?.bypassCache) {
+    const cached = cacheGet(BUG_INDEX_CACHE_KEY)
+    if (cached !== undefined) {
+      return cached as BugIndex | null
+    }
   }
 
   const item = await getItem(BUG_INDEX_PK, BUG_INDEX_SK)
@@ -92,6 +104,7 @@ export async function getBugIndex(): Promise<BugIndex | null> {
       "4": ((item.byDifficulty as Record<string, string[]>)?.["4"]) ?? [],
       "5": ((item.byDifficulty as Record<string, string[]>)?.["5"]) ?? [],
     },
+    version: (item.version as number) ?? 0,
   }
 
   cacheSet(BUG_INDEX_CACHE_KEY, index, BUG_INDEX_CACHE_TTL_MS)
@@ -102,66 +115,145 @@ export async function getBugIndex(): Promise<BugIndex | null> {
 // putBugIndex
 // ---------------------------------------------------------------------------
 
-/** Write (or overwrite) the BUG#INDEX item. Invalidates the in-memory cache. */
-export async function putBugIndex(index: BugIndex): Promise<void> {
-  await putItem({
-    pk: BUG_INDEX_PK,
-    sk: BUG_INDEX_SK,
-    bugIds: index.bugIds,
-    pendingBugIds: index.pendingBugIds,
-    byDifficulty: index.byDifficulty,
-  })
-  cacheSet(BUG_INDEX_CACHE_KEY, index, BUG_INDEX_CACHE_TTL_MS)
+/**
+ * Conditionally write the BUG#INDEX item, requiring the stored version to
+ * still match `expectedVersion` (optimistic concurrency). Writes version+1.
+ * Returns false on a ConditionalCheckFailedException (caller should re-fetch
+ * fresh, re-apply its mutation, and retry) and throws on any other error.
+ */
+export async function putBugIndex(index: BugIndex, expectedVersion: number): Promise<boolean> {
+  const newIndex: BugIndex = { ...index, version: expectedVersion + 1 }
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: {
+          pk: BUG_INDEX_PK,
+          sk: BUG_INDEX_SK,
+          bugIds: newIndex.bugIds,
+          pendingBugIds: newIndex.pendingBugIds,
+          byDifficulty: newIndex.byDifficulty,
+          version: newIndex.version,
+        },
+        // Legacy BUG#INDEX items predate the `version` field — treat a missing
+        // attribute as version 0 so the first conditional write against one
+        // doesn't spuriously fail (DynamoDB evaluates `version = :v` as false,
+        // not an error, when the attribute is absent).
+        ConditionExpression: "attribute_not_exists(version) OR version = :expectedVersion",
+        ExpressionAttributeValues: { ":expectedVersion": expectedVersion },
+      })
+    )
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      return false
+    }
+    throw err
+  }
+  cacheSet(BUG_INDEX_CACHE_KEY, newIndex, BUG_INDEX_CACHE_TTL_MS)
+  return true
 }
 
 // ---------------------------------------------------------------------------
-// selectBugForGame
+// mutateBugIndex — retry-on-conflict wrapper around putBugIndex
+// ---------------------------------------------------------------------------
+
+const BUG_INDEX_RETRY_CAP = 3
+
+/**
+ * Read-modify-write the BUG#INDEX with optimistic-concurrency retry.
+ * `mutate` receives a fresh copy of the index (or a freshly-initialized empty
+ * one if none exists yet) and should return the mutated copy to persist.
+ * Retries up to BUG_INDEX_RETRY_CAP times against a freshly-refetched index
+ * on version conflicts, throwing if all attempts fail.
+ */
+async function mutateBugIndex(mutate: (index: BugIndex) => BugIndex): Promise<void> {
+  for (let attempt = 0; attempt < BUG_INDEX_RETRY_CAP; attempt++) {
+    const existing = await getBugIndex({ bypassCache: attempt > 0 })
+    const current: BugIndex = existing ?? {
+      bugIds: [],
+      pendingBugIds: [],
+      byDifficulty: { "1": [], "2": [], "3": [], "4": [], "5": [] },
+      version: 0,
+    }
+    const mutated = mutate(current)
+    const ok = await putBugIndex(mutated, current.version)
+    if (ok) return
+  }
+  throw new Error("putBugIndex: exhausted retries due to concurrent BUG#INDEX writes")
+}
+
+// ---------------------------------------------------------------------------
+// selectBugsForGame
 // ---------------------------------------------------------------------------
 
 /**
- * Pick the best bug for a game given the average Elo of two players and the
- * bugs each player has already seen.
+ * Pick `count` distinct bugs for a multi-round game given the average Elo of
+ * two players and the bugs each player has already seen.
  *
- * Algorithm:
+ * Algorithm (run once per slot, excluding bugs already chosen this match):
  * 1. Map avgElo → targetDifficulty (1–5)
  * 2. Try targetDifficulty first, then widen outward (±1, ±2 …)
- * 3. From eligible candidates, weight toward lower timesServed and pick one at
- *    random using a simple inverse-frequency weighting.
+ * 3. If a tier's unseen pool is exhausted, widen to allow previously-seen bugs
+ *    so the match can still fill all slots
+ * 4. From eligible candidates, weight toward lower timesServed and pick one at
+ *    random using a simple inverse-frequency weighting
+ *
+ * Returns null if fewer than `count` distinct bugs are available overall.
  */
-export async function selectBugForGame(
+export async function selectBugsForGame(
   avgElo: number,
   player1BugsSeen: string[],
-  player2BugsSeen: string[]
-): Promise<Bug | null> {
+  player2BugsSeen: string[],
+  count: number = 3
+): Promise<Bug[] | null> {
   const index = await getBugIndex()
   if (!index) return null
 
   // Elo → difficulty: ceil(elo / 400), capped at 5
   const targetDifficulty = Math.min(5, Math.ceil(avgElo / 400)) as 1 | 2 | 3 | 4 | 5
-
   const seenSet = new Set([...player1BugsSeen, ...player2BugsSeen])
-
-  // Build priority order: target first, then expand outward
   const order = buildDifficultyOrder(targetDifficulty)
+  const chosenIds = new Set<string>()
+  const chosen: Bug[] = []
 
-  let candidates: string[] = []
-  for (const d of order) {
-    const ids = index.byDifficulty[String(d) as "1" | "2" | "3" | "4" | "5"] ?? []
-    const unseen = ids.filter((id) => !seenSet.has(id))
-    if (unseen.length > 0) {
-      candidates = unseen
-      break
+  for (let slot = 0; slot < count; slot++) {
+    let candidates: string[] = []
+
+    // Pass 1: unseen bugs in difficulty-priority order
+    for (const d of order) {
+      const ids = index.byDifficulty[String(d) as "1" | "2" | "3" | "4" | "5"] ?? []
+      const unseen = ids.filter((id) => !seenSet.has(id) && !chosenIds.has(id))
+      if (unseen.length > 0) {
+        candidates = unseen
+        break
+      }
     }
+
+    // Pass 2: widen to previously-seen bugs (still excluding ones already chosen this match)
+    if (candidates.length === 0) {
+      for (const d of order) {
+        const ids = index.byDifficulty[String(d) as "1" | "2" | "3" | "4" | "5"] ?? []
+        const remaining = ids.filter((id) => !chosenIds.has(id))
+        if (remaining.length > 0) {
+          candidates = remaining
+          break
+        }
+      }
+    }
+
+    if (candidates.length === 0) break
+
+    const bugs = await Promise.all(candidates.map((id) => getBug(id)))
+    const validBugs = bugs.filter((b): b is Bug => b !== null && !chosenIds.has(b.bugId))
+    if (validBugs.length === 0) break
+
+    const picked = weightedRandomBug(validBugs)
+    chosenIds.add(picked.bugId)
+    chosen.push(picked)
   }
 
-  if (candidates.length === 0) return null
-
-  // Fetch all candidates to get timesServed, then weight toward lower values
-  const bugs = await Promise.all(candidates.map((id) => getBug(id)))
-  const validBugs = bugs.filter((b): b is Bug => b !== null)
-  if (validBugs.length === 0) return null
-
-  return weightedRandomBug(validBugs)
+  if (chosen.length < count) return null
+  return chosen
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +320,9 @@ function itemToBug(item: Record<string, unknown>): Bug {
     source: (item.source as string) ?? "manual",
     status: (item.status as "active" | "pending_review") ?? "active",
     createdAt: item.createdAt as number,
+    // Preserve "not yet rated" as undefined (not 0) so health route's `?? 0` fallbacks work correctly
+    ratingCount: (item.ratingCount as number) ?? undefined,
+    ratingSum: (item.ratingSum as number) ?? undefined,
   }
 }
 
@@ -314,30 +409,25 @@ export async function createBug(
     createdAt: bug.createdAt,
   })
 
-  // Update index
-  const existing = await getBugIndex()
-  const index: BugIndex = existing ?? {
-    bugIds: [],
-    pendingBugIds: [],
-    byDifficulty: { "1": [], "2": [], "3": [], "4": [], "5": [] },
-  }
+  // Update index (retry-on-conflict: re-applies this same mutation to a fresh copy)
+  await mutateBugIndex((index) => {
+    if (bug.status === "active") {
+      if (!index.bugIds.includes(bug.bugId)) {
+        index.bugIds.push(bug.bugId)
+      }
+      const key = String(bug.difficulty) as "1" | "2" | "3" | "4" | "5"
+      if (!index.byDifficulty[key].includes(bug.bugId)) {
+        index.byDifficulty[key].push(bug.bugId)
+      }
+    } else {
+      // pending_review
+      if (!index.pendingBugIds.includes(bug.bugId)) {
+        index.pendingBugIds.push(bug.bugId)
+      }
+    }
+    return index
+  })
 
-  if (bug.status === "active") {
-    if (!index.bugIds.includes(bug.bugId)) {
-      index.bugIds.push(bug.bugId)
-    }
-    const key = String(bug.difficulty) as "1" | "2" | "3" | "4" | "5"
-    if (!index.byDifficulty[key].includes(bug.bugId)) {
-      index.byDifficulty[key].push(bug.bugId)
-    }
-  } else {
-    // pending_review
-    if (!index.pendingBugIds.includes(bug.bugId)) {
-      index.pendingBugIds.push(bug.bugId)
-    }
-  }
-
-  await putBugIndex(index)
   return bug
 }
 
@@ -356,19 +446,14 @@ export async function approveBug(bugId: string): Promise<Bug | null> {
 
   await updateItem(`BUG#${bugId}`, "META", { status: "active" })
 
-  const existing = await getBugIndex()
-  const index: BugIndex = existing ?? {
-    bugIds: [],
-    pendingBugIds: [],
-    byDifficulty: { "1": [], "2": [], "3": [], "4": [], "5": [] },
-  }
+  await mutateBugIndex((index) => {
+    index.pendingBugIds = index.pendingBugIds.filter((id) => id !== bugId)
+    if (!index.bugIds.includes(bugId)) index.bugIds.push(bugId)
+    const key = String(bug.difficulty) as "1" | "2" | "3" | "4" | "5"
+    if (!index.byDifficulty[key].includes(bugId)) index.byDifficulty[key].push(bugId)
+    return index
+  })
 
-  index.pendingBugIds = index.pendingBugIds.filter((id) => id !== bugId)
-  if (!index.bugIds.includes(bugId)) index.bugIds.push(bugId)
-  const key = String(bug.difficulty) as "1" | "2" | "3" | "4" | "5"
-  if (!index.byDifficulty[key].includes(bugId)) index.byDifficulty[key].push(bugId)
-
-  await putBugIndex(index)
   return { ...bug, status: "active" }
 }
 
@@ -385,13 +470,14 @@ export async function rejectBug(bugId: string): Promise<void> {
   const existing = await getBugIndex()
   if (!existing) return
 
-  existing.pendingBugIds = existing.pendingBugIds.filter((id) => id !== bugId)
-  existing.bugIds = existing.bugIds.filter((id) => id !== bugId)
-  for (const key of ["1", "2", "3", "4", "5"] as const) {
-    existing.byDifficulty[key] = existing.byDifficulty[key].filter((id) => id !== bugId)
-  }
-
-  await putBugIndex(existing)
+  await mutateBugIndex((index) => {
+    index.pendingBugIds = index.pendingBugIds.filter((id) => id !== bugId)
+    index.bugIds = index.bugIds.filter((id) => id !== bugId)
+    for (const key of ["1", "2", "3", "4", "5"] as const) {
+      index.byDifficulty[key] = index.byDifficulty[key].filter((id) => id !== bugId)
+    }
+    return index
+  })
 }
 
 // ---------------------------------------------------------------------------

@@ -407,7 +407,8 @@ export default function PracticePage() {
                 </div>
 
                 {/* Difficulty rating */}
-                <RatingWidget bugId={bug.bugId} />
+                {/* key forces a fresh instance (and fresh `rated` state) per bug */}
+                <RatingWidget key={bug.bugId} bugId={bug.bugId} />
 
                 {/* Sign-in nudge for guests */}
                 {!session?.user && (

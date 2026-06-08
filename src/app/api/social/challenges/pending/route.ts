@@ -34,7 +34,12 @@ export async function GET(req: NextRequest) {
   )
 
   const pending = challengeItems
-    .filter((item) => item !== null && item.status === "pending")
+    .filter((item) =>
+      item !== null &&
+      item.status === "pending" &&
+      // DynamoDB TTL deletion lags; treat logically-expired items as gone
+      !(item.expiresAt != null && Date.now() >= (item.expiresAt as number) * 1000)
+    )
     .map((item) => ({
       challengeId: item!.challengeId as string,
       challengerId: item!.challengerId as string,

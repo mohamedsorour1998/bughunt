@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getGame, getGamePlayer, resolveGame } from "@/lib/game"
+import {
+  getGame,
+  getGamePlayer,
+  submitRoundAnswer,
+  advanceOrResolveRound,
+  ROUND_DURATION_MS,
+} from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
@@ -27,12 +33,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  // Auto-resolve timed-out games
+  // Auto-advance/resolve timed-out rounds
   if (game.status === "active") {
-    const elapsed = Date.now() - game.createdAt
-    if (elapsed > 120000 + 5000) {  // 5s grace period
+    const round = game.currentRound
+    const roundStartedAt = game.roundStartedAt[round]
+    const elapsed = Date.now() - roundStartedAt
+    if (elapsed > ROUND_DURATION_MS + 5000) { // 5s grace period
       try {
-        await resolveGame(game.gameId)
+        const bug = await getBug(game.bugIds[round])
+        if (bug) {
+          const now = Date.now()
+          const participants = [game.player1Id, game.player2Id].filter((id): id is string => id !== null)
+          const records = await Promise.all(participants.map((id) => getGamePlayer(gameId, id)))
+          await Promise.all(
+            participants.map((id, i) => {
+              const submitted = records[i]?.answers?.[round]?.submittedAt != null
+              if (submitted) return Promise.resolve()
+              return submitRoundAnswer(gameId, id, round, bug, null, now, roundStartedAt)
+            })
+          )
+        }
+        await advanceOrResolveRound(gameId)
         game = await getGame(gameId) ?? game
       } catch {
         // Serve stale game state rather than 500 on transient failure
@@ -40,10 +61,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Get bug data if game is active or completed
-  let bugData = null
-  if (game.status === "active" || game.status === "completed") {
-    const bug = await getBug(game.bugId)
+  // Get bug data
+  let bugData: Record<string, unknown> | null = null
+  let bugsData: Record<string, unknown>[] | null = null
+
+  if (game.status === "active") {
+    const bug = await getBug(game.bugIds[game.currentRound])
     if (bug) {
       bugData = {
         bugId: bug.bugId,
@@ -54,16 +77,24 @@ export async function GET(request: NextRequest) {
         bugLine: bug.bugLine,
         options: bug.options,
         hint: bug.hint,
-        // Only expose correctAnswer and explanation if game is completed
-        ...(game.status === "completed"
-          ? {
-              correctAnswer: bug.correctAnswer,
-              explanation: bug.explanation,
-              correctCode: bug.correctCode,
-            }
-          : {}),
       }
     }
+  } else if (game.status === "completed") {
+    const bugs = await Promise.all(game.bugIds.map((id) => getBug(id)))
+    bugsData = bugs.filter((b) => b !== null).map((bug) => ({
+      bugId: bug!.bugId,
+      language: bug!.language,
+      category: bug!.category,
+      difficulty: bug!.difficulty,
+      buggyCode: bug!.buggyCode,
+      bugLine: bug!.bugLine,
+      options: bug!.options,
+      hint: bug!.hint,
+      correctAnswer: bug!.correctAnswer,
+      explanation: bug!.explanation,
+      correctCode: bug!.correctCode,
+    }))
+    bugData = bugsData[0] ?? null
   }
 
   // Get the requesting user's GamePlayer record
@@ -72,6 +103,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     game,
     bug: bugData,
+    bugs: bugsData,
     player: playerRecord,
   })
 }

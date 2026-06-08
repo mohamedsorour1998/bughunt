@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test"
 import assert from "node:assert/strict"
 import { NextRequest } from "next/server"
-import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstActiveBugId } from "../helpers/db"
+import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstNActiveBugIds } from "../helpers/db"
 import { TEST_USER_1, TEST_USER_2 } from "../helpers/fixtures"
 import { GET as getNotifications, POST as markNotification } from "../../src/app/api/notifications/route"
 import { GET as getChatMessages, POST as postChat } from "../../src/app/api/game/[gameId]/chat/route"
@@ -25,12 +25,12 @@ function anonNextReq(url: string, method = "GET", body?: unknown): NextRequest {
 }
 
 const CHAT_GAME_ID = `test-chat-game-${Date.now()}`
-let testBugId: string
+let testBugIds: string[]
 
 before(async () => {
   await seedTestUsers()
-  testBugId = await getFirstActiveBugId()
-  await seedTestGame(CHAT_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugId, "completed")
+  testBugIds = await getFirstNActiveBugIds(3)
+  await seedTestGame(CHAT_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugIds, "completed")
 })
 
 after(async () => {

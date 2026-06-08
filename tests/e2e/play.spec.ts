@@ -68,9 +68,11 @@ test.describe("Two-player full game flow", () => {
     await expect(page2.locator("pre").first()).toBeVisible({ timeout: 30000 })
   })
 
-  test("playing state shows timer and 4 answer buttons on both sides", async () => {
+  test("playing state shows timer, round badge, and 4 answer buttons on both sides", async () => {
     // Timer like "2:00" or "1:58"
     await expect(page1.getByText(/\d+:\d{2}/).first()).toBeVisible()
+    // Round badge
+    await expect(page1.getByText(/Round 1 of 3/i).first()).toBeVisible({ timeout: 8000 })
     // 4 answer buttons
     const answerBtns = page1.locator("button").filter({
       has: page1.locator("span").filter({ hasText: /^[A-D]$/ }),
@@ -78,23 +80,32 @@ test.describe("Two-player full game flow", () => {
     await expect(answerBtns).toHaveCount(4)
   })
 
-  test("player 1 submits — answer buttons become disabled", async () => {
-    const answerBtns = page1.locator("button").filter({
-      has: page1.locator("span").filter({ hasText: /^[A-D]$/ }),
-    })
-    await answerBtns.first().click()
-    // After submit, all answer buttons should be disabled
-    await expect(answerBtns.first()).toBeDisabled({ timeout: 8000 })
-  })
+  test("both players play through all 3 rounds and redirect to the result page", async () => {
+    const answerBtnsFor = (page: Page) =>
+      page.locator("button").filter({ has: page.locator("span").filter({ hasText: /^[A-D]$/ }) })
 
-  test("player 2 submits — both redirect to result page", async () => {
-    const p2AnswerBtns = page2.locator("button").filter({
-      has: page2.locator("span").filter({ hasText: /^[A-D]$/ }),
-    })
-    // Guard: only click if buttons are still enabled (game may have auto-resolved)
-    await expect(p2AnswerBtns.first()).toBeEnabled({ timeout: 5000 }).catch(() => {})
-    const isEnabled = await p2AnswerBtns.first().isEnabled().catch(() => false)
-    if (isEnabled) await p2AnswerBtns.first().click()
+    for (let round = 1; round <= 3; round++) {
+      await expect(page1.getByText(new RegExp(`Round ${round} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
+      await expect(page2.getByText(new RegExp(`Round ${round} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
+
+      const p1Btns = answerBtnsFor(page1)
+      const p2Btns = answerBtnsFor(page2)
+
+      // Guard: only click if still enabled (round may have auto-advanced already)
+      if (await p1Btns.first().isEnabled().catch(() => false)) await p1Btns.first().click()
+      await expect(p1Btns.first()).toBeDisabled({ timeout: 8000 })
+
+      if (await p2Btns.first().isEnabled().catch(() => false)) await p2Btns.first().click()
+      await expect(p2Btns.first()).toBeDisabled({ timeout: 8000 })
+
+      if (round < 3) {
+        // Next round's code block + re-enabled buttons appear once both have submitted
+        await expect(page1.getByText(new RegExp(`Round ${round + 1} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
+        await expect(page2.getByText(new RegExp(`Round ${round + 1} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
+        await expect(answerBtnsFor(page1).first()).toBeEnabled({ timeout: 15000 })
+        await expect(answerBtnsFor(page2).first()).toBeEnabled({ timeout: 15000 })
+      }
+    }
 
     // Both pages redirect to /game/result/...
     await page1.waitForURL(/\/game\/result\//, { timeout: 30000 })

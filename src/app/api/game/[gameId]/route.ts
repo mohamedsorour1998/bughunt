@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getGame, getGamePlayer } from "@/lib/game"
+import { getGame, getGamePlayer, type GamePlayer, type RoundAnswer } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 import { getItem } from "@/lib/dynamodb"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
@@ -32,37 +32,36 @@ export async function GET(
     game.player2Id ? getGamePlayer(gameId, game.player2Id) : Promise.resolve(null),
   ])
 
-  // Don't reveal opponent's answer until game is completed
+  // Don't reveal opponent's answers until game is completed
   const isCompleted = game.status === "completed"
 
-  const sanitizePlayer = (
-    player: Awaited<ReturnType<typeof getGamePlayer>>,
-    isRequester: boolean
-  ) => {
+  const sanitizePlayer = (player: GamePlayer | null, isRequester: boolean) => {
     if (!player) return null
-    return {
-      userId: player.userId,
-      submitted: player.submittedAt !== null,
-      submittedAt: player.submittedAt,
-      // Only reveal answer/correct if completed, or if it's the requesting user
-      ...(isCompleted || isRequester
-        ? {
-            answer: player.answer,
-            correct: player.correct,
-            timeElapsedMs: player.timeElapsedMs,
-          }
-        : {
-            answer: null,
-            correct: null,
-            timeElapsedMs: null,
-          }),
-    }
+    const answers = player.answers.map((a: RoundAnswer) => {
+      const submitted = a.submittedAt !== null
+      if (isCompleted || isRequester) {
+        return { ...a, submitted }
+      }
+      // Hide the opponent's answer/correct/time while the game is active —
+      // expose only whether (and when) they've submitted each round so the
+      // UI can show "opponent answered, waiting on you" without leaking it.
+      return {
+        bugId: a.bugId,
+        submitted,
+        submittedAt: a.submittedAt,
+        answer: null,
+        correct: null,
+        timeElapsedMs: null,
+      }
+    })
+    return { userId: player.userId, answers }
   }
 
   const isPlayer1 = game.player1Id === userId
 
   // Fetch bug data (only revealed when game is completed)
-  const bugData = isCompleted ? await getBug(game.bugId) : null
+  const bugs = isCompleted ? (await Promise.all(game.bugIds.map((id) => getBug(id)))).filter((b) => b !== null) : []
+  const bugData = bugs.length > 0 ? bugs[0] : null
 
   // Fetch match history entry for this user if game is completed
   let matchHistoryEntry: {
@@ -89,6 +88,7 @@ export async function GET(
   return NextResponse.json({
     game,
     bug: bugData,
+    bugs: isCompleted ? bugs : null,
     players: {
       player1: sanitizePlayer(p1Player, isPlayer1),
       player2: sanitizePlayer(p2Player, !isPlayer1),

@@ -80,12 +80,18 @@ export async function GET(req: NextRequest) {
       }
 
       // DynamoDB polling — reliable fallback when Redis pub/sub is unavailable
+      let lastSeenRound = game?.currentRound ?? 0
       function startPolling() {
         state.pollTimer = setInterval(async () => {
           if (state.closed) return
           try {
             const g = await getGame(gameId)
-            if (g?.status === "completed") resolve()
+            if (!g) return
+            if (g.currentRound !== lastSeenRound) {
+              lastSeenRound = g.currentRound
+              send({ type: "round_advanced", round: g.currentRound })
+            }
+            if (g.status === "completed") resolve()
           } catch { /* ignore transient errors */ }
         }, POLL_INTERVAL_MS)
         startHeartbeat()

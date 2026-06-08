@@ -1,13 +1,16 @@
 import { v4 as uuidv4 } from "uuid"
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb"
 import {
   getItem,
   putItem,
   updateItem,
   deleteItem,
   queryItems,
+  ddb,
+  TABLE_NAME,
 } from "@/lib/dynamodb"
 import { getUser, updateUser, getRankFromElo, UserProfile } from "@/lib/users"
-import { getBug, markBugServed } from "@/lib/bugs"
+import { markBugServed, type Bug } from "@/lib/bugs"
 import { publishGameEvent } from "@/lib/redis"
 
 // ---------------------------------------------------------------------------
@@ -16,11 +19,24 @@ import { publishGameEvent } from "@/lib/redis"
 
 export type GameStatus = "waiting" | "active" | "completed"
 
+/** Number of bug rounds played per ranked match. */
+export const ROUNDS_PER_GAME = 3
+
+/** Time allotted per round before it auto-times-out. */
+export const ROUND_DURATION_MS = 120_000
+
 export type Game = {
   gameId: string
   player1Id: string
   player2Id: string | null
+  /** All bugs played this match, in round order (length ROUNDS_PER_GAME). */
+  bugIds: string[]
+  /** @deprecated kept for back-compat — equals bugIds[0] */
   bugId: string
+  /** 0-indexed pointer to the round currently being played. */
+  currentRound: number
+  /** Epoch ms each round started; roundStartedAt[0] === createdAt. 0 = not started yet. */
+  roundStartedAt: number[]
   status: GameStatus
   winnerId: string | null
   createdAt: number
@@ -36,13 +52,36 @@ export interface CreateGameOptions {
   waitForPlayer2?: boolean
 }
 
-export type GamePlayer = {
-  gameId: string
-  userId: string
+export type RoundAnswer = {
+  bugId: string
   answer: number | null
   correct: boolean | null
   submittedAt: number | null
   timeElapsedMs: number | null
+}
+
+export type GamePlayer = {
+  gameId: string
+  userId: string
+  /** One slot per round (length ROUNDS_PER_GAME), pre-filled with nulls. */
+  answers: RoundAnswer[]
+}
+
+function emptyRoundAnswer(bugId: string): RoundAnswer {
+  return { bugId, answer: null, correct: null, submittedAt: null, timeElapsedMs: null }
+}
+
+/** Aggregate a player's round answers into (correctCount, totalTimeMs). Missing rounds make totalTimeMs = Infinity so they always lose tiebreaks. */
+function aggregatePlayer(record: GamePlayer | null): { correctCount: number; totalTimeMs: number } {
+  let correctCount = 0
+  let totalTimeMs = 0
+  let anyMissing = false
+  for (const a of record?.answers ?? []) {
+    if (a.correct) correctCount++
+    if (a.timeElapsedMs != null) totalTimeMs += a.timeElapsedMs
+    else anyMissing = true
+  }
+  return { correctCount, totalTimeMs: anyMissing ? Infinity : totalTimeMs }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,21 +197,29 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
 export async function createGame(
   player1Id: string,
   player2Id: string | null,
-  bugId: string,
+  bugIds: string[],
   options: CreateGameOptions = {}
 ): Promise<Game> {
+  if (bugIds.length !== ROUNDS_PER_GAME) {
+    throw new Error(`createGame requires exactly ${ROUNDS_PER_GAME} bugIds, got ${bugIds.length}`)
+  }
   const { isPrivate = false, affectsElo = true, waitForPlayer2 = false } = options
 
   const gameId = uuidv4()
   const now = Date.now()
   const expiresAt = Math.floor((now + 90 * 24 * 60 * 60 * 1000) / 1000) // 90 days TTL (epoch seconds for DDB TTL)
   const status: GameStatus = waitForPlayer2 ? "waiting" : "active"
+  const bugId = bugIds[0]
+  const roundStartedAt = [now, ...Array(ROUNDS_PER_GAME - 1).fill(0)]
 
   const game: Game = {
     gameId,
     player1Id,
     player2Id,
+    bugIds,
     bugId,
+    currentRound: 0,
+    roundStartedAt,
     status,
     winnerId: null,
     createdAt: now,
@@ -188,7 +235,10 @@ export async function createGame(
     gameId,
     player1Id,
     player2Id,
+    bugIds,
     bugId,
+    currentRound: 0,
+    roundStartedAt,
     status,
     winnerId: null,
     createdAt: now,
@@ -198,6 +248,9 @@ export async function createGame(
     gsi1pk: `ACTIVE_GAME#${player1Id}`,
     gsi1sk: gameId,
   })
+
+  // Pre-create player1's answer record (round slots filled with nulls)
+  await createGamePlayerRecord(gameId, player1Id, bugIds)
 
   // Write tracking item for player2 (separate item so GSI1 can index both)
   if (player2Id) {
@@ -210,9 +263,36 @@ export async function createGame(
       gsi1pk: `ACTIVE_GAME#${player2Id}`,
       gsi1sk: gameId,
     })
+    await createGamePlayerRecord(gameId, player2Id, bugIds)
   }
 
   return game
+}
+
+// ---------------------------------------------------------------------------
+// createGamePlayerRecord
+// ---------------------------------------------------------------------------
+
+/** Pre-create a player's PLAYER# answer record with null-filled round slots. */
+export async function createGamePlayerRecord(
+  gameId: string,
+  userId: string,
+  bugIds: string[]
+): Promise<void> {
+  const answers = bugIds.map(emptyRoundAnswer)
+  await putItem(
+    {
+      pk: `GAME#${gameId}`,
+      sk: `PLAYER#${userId}`,
+      gameId,
+      userId,
+      answers,
+    },
+    "attribute_not_exists(pk)"
+  ).catch((err: unknown) => {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") return
+    throw err
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -229,12 +309,119 @@ export async function getGamePlayer(
 }
 
 // ---------------------------------------------------------------------------
+// submitRoundAnswer
+// ---------------------------------------------------------------------------
+
+/**
+ * Conditionally write a player's answer for a single round slot.
+ * Fails (written: false) if that slot was already submitted — guards against
+ * double-submits racing each other (mirrors putItemIfNotExists for list slots,
+ * since updateItem doesn't support ConditionExpression or list-index SET).
+ *
+ * Pass answer=null to record a timeout (counts as incorrect, full round duration elapsed).
+ */
+export async function submitRoundAnswer(
+  gameId: string,
+  userId: string,
+  roundIndex: number,
+  bug: Bug,
+  answer: number | null,
+  now: number,
+  roundStartedAt: number
+): Promise<{ written: boolean; correct: boolean; timeElapsedMs: number }> {
+  const correct = answer != null && answer === bug.correctAnswer
+  const timeElapsedMs = answer == null ? ROUND_DURATION_MS : now - roundStartedAt
+  const value: RoundAnswer = { bugId: bug.bugId, answer, correct, submittedAt: now, timeElapsedMs }
+
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: `GAME#${gameId}`, sk: `PLAYER#${userId}` },
+        UpdateExpression: `SET answers[${roundIndex}] = :val`,
+        ConditionExpression: `attribute_exists(pk) AND (attribute_not_exists(answers[${roundIndex}].submittedAt) OR answers[${roundIndex}].submittedAt = :null)`,
+        ExpressionAttributeValues: { ":val": value, ":null": null },
+      })
+    )
+    return { written: true, correct, timeElapsedMs }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      return { written: false, correct, timeElapsedMs }
+    }
+    throw err
+  }
+}
+
+// ---------------------------------------------------------------------------
+// advanceOrResolveRound
+// ---------------------------------------------------------------------------
+
+/**
+ * Called after a player submits a round answer. If both players have now
+ * answered the current round, either advances to the next round (publishing
+ * round_advanced) or resolves the game if that was the final round.
+ */
+export async function advanceOrResolveRound(gameId: string): Promise<void> {
+  const game = await getGame(gameId)
+  if (!game || game.status !== "active") return
+
+  const round = game.currentRound
+  const [p1Record, p2Record] = await Promise.all([
+    getGamePlayer(gameId, game.player1Id),
+    game.player2Id ? getGamePlayer(gameId, game.player2Id) : Promise.resolve(null),
+  ])
+
+  const p1Done = p1Record?.answers?.[round]?.submittedAt != null
+  const p2Done = !game.player2Id || p2Record?.answers?.[round]?.submittedAt != null
+  if (!p1Done || !p2Done) return
+
+  if (round + 1 >= ROUNDS_PER_GAME) {
+    await resolveGame(gameId)
+    return
+  }
+
+  const now = Date.now()
+  const nextRound = round + 1
+  const roundStartedAt = [...game.roundStartedAt]
+  roundStartedAt[nextRound] = now
+
+  await updateItem(`GAME#${gameId}`, "META", { currentRound: nextRound, roundStartedAt })
+
+  publishGameEvent(gameId, {
+    type: "round_advanced",
+    round: nextRound,
+  }).catch(() => {/* Redis failure must not break round progression */})
+}
+
+// ---------------------------------------------------------------------------
 // resolveGame
 // ---------------------------------------------------------------------------
 
 export async function resolveGame(gameId: string): Promise<void> {
   const game = await getGame(gameId)
   if (!game || game.status === "completed") return
+
+  // Atomically claim resolution by flipping status active -> completed. Two
+  // concurrent callers (submit + status-timeout paths) can both reach this
+  // point; only the one whose conditional update succeeds proceeds to apply
+  // Elo/history/notification side effects — the other returns early.
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: `GAME#${gameId}`, sk: "META" },
+        UpdateExpression: "SET #status = :completed",
+        ConditionExpression: "#status = :active",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: { ":completed": "completed", ":active": "active" },
+      })
+    )
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      return
+    }
+    throw err
+  }
 
   const [p1Record, p2Record] = await Promise.all([
     getGamePlayer(gameId, game.player1Id),
@@ -261,37 +448,28 @@ export async function resolveGame(gameId: string): Promise<void> {
     p1Score = 0.5
     p2Score = 0.5
   } else {
-    const p1Correct = p1Record?.correct ?? false
-    const p2Correct = p2Record?.correct ?? false
-    const p1Time = p1Record?.timeElapsedMs ?? Infinity
-    const p2Time = p2Record?.timeElapsedMs ?? Infinity
+    const p1Agg = aggregatePlayer(p1Record)
+    const p2Agg = aggregatePlayer(p2Record)
 
-    if (p1Correct && p2Correct) {
-      // Both correct: faster wins
-      if (p1Time < p2Time) {
-        winnerId = game.player1Id
-        p1Score = 1
-        p2Score = 0
-      } else if (p2Time < p1Time) {
-        winnerId = game.player2Id
-        p1Score = 0
-        p2Score = 1
-      } else {
-        // Exact tie
-        winnerId = null
-        p1Score = 0.5
-        p2Score = 0.5
-      }
-    } else if (p1Correct && !p2Correct) {
+    if (p1Agg.correctCount > p2Agg.correctCount) {
       winnerId = game.player1Id
       p1Score = 1
       p2Score = 0
-    } else if (!p1Correct && p2Correct) {
+    } else if (p2Agg.correctCount > p1Agg.correctCount) {
+      winnerId = game.player2Id
+      p1Score = 0
+      p2Score = 1
+    } else if (p1Agg.totalTimeMs < p2Agg.totalTimeMs) {
+      // Tied on correct count — faster aggregate time wins
+      winnerId = game.player1Id
+      p1Score = 1
+      p2Score = 0
+    } else if (p2Agg.totalTimeMs < p1Agg.totalTimeMs) {
       winnerId = game.player2Id
       p1Score = 0
       p2Score = 1
     } else {
-      // Neither correct: draw
+      // Exact tie on both correctCount and totalTimeMs: draw
       winnerId = null
       p1Score = 0.5
       p2Score = 0.5
@@ -508,14 +686,16 @@ export async function resolveGame(gameId: string): Promise<void> {
   // ---------------------------------------------------------------------------
   await deleteItem(`GAME#${gameId}`, "META").catch(() => {/* ignore if already gone */})
   // Re-write META without gsi1pk/gsi1sk
-  const bug = await getBug(game.bugId)
   await putItem({
     pk: `GAME#${gameId}`,
     sk: "META",
     gameId,
     player1Id: game.player1Id,
     player2Id: game.player2Id,
+    bugIds: game.bugIds,
     bugId: game.bugId,
+    currentRound: ROUNDS_PER_GAME,
+    roundStartedAt: game.roundStartedAt,
     status: "completed",
     winnerId,
     createdAt: game.createdAt,
@@ -533,7 +713,7 @@ export async function resolveGame(gameId: string): Promise<void> {
   // ---------------------------------------------------------------------------
   // markBugServed
   // ---------------------------------------------------------------------------
-  await markBugServed(game.bugId)
+  await Promise.all(game.bugIds.map(markBugServed))
 }
 
 // ---------------------------------------------------------------------------
@@ -541,14 +721,20 @@ export async function resolveGame(gameId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function itemToGame(item: Record<string, unknown>): Game {
+  const bugId = item.bugId as string
+  const bugIds = Array.isArray(item.bugIds) ? (item.bugIds as string[]) : [bugId]
+  const createdAt = item.createdAt as number
   return {
     gameId: item.gameId as string,
     player1Id: item.player1Id as string,
     player2Id: (item.player2Id as string | null) ?? null,
-    bugId: item.bugId as string,
+    bugIds,
+    bugId,
+    currentRound: (item.currentRound as number) ?? 0,
+    roundStartedAt: Array.isArray(item.roundStartedAt) ? (item.roundStartedAt as number[]) : [createdAt],
     status: item.status as GameStatus,
     winnerId: (item.winnerId as string | null) ?? null,
-    createdAt: item.createdAt as number,
+    createdAt,
     expiresAt: item.expiresAt as number,
     isPrivate: (item.isPrivate as boolean) ?? false,
     affectsElo: (item.affectsElo as boolean) ?? true,
@@ -556,12 +742,25 @@ function itemToGame(item: Record<string, unknown>): Game {
 }
 
 function itemToGamePlayer(item: Record<string, unknown>): GamePlayer {
+  if (Array.isArray(item.answers)) {
+    return {
+      gameId: item.gameId as string,
+      userId: item.userId as string,
+      answers: item.answers as RoundAnswer[],
+    }
+  }
+  // Legacy single-answer shape — wrap into a 1-element answers array
   return {
     gameId: item.gameId as string,
     userId: item.userId as string,
-    answer: (item.answer as number | null) ?? null,
-    correct: (item.correct as boolean | null) ?? null,
-    submittedAt: (item.submittedAt as number | null) ?? null,
-    timeElapsedMs: (item.timeElapsedMs as number | null) ?? null,
+    answers: [
+      {
+        bugId: (item.bugId as string) ?? "",
+        answer: (item.answer as number | null) ?? null,
+        correct: (item.correct as boolean | null) ?? null,
+        submittedAt: (item.submittedAt as number | null) ?? null,
+        timeElapsedMs: (item.timeElapsedMs as number | null) ?? null,
+      },
+    ],
   }
 }

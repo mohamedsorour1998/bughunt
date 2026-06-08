@@ -1,7 +1,7 @@
 import { test, before, after, describe } from "node:test"
 import assert from "node:assert/strict"
 import { NextRequest } from "next/server"
-import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstActiveBugId } from "../helpers/db"
+import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstNActiveBugIds } from "../helpers/db"
 import { TEST_USER_1, TEST_USER_2 } from "../helpers/fixtures"
 import { POST as matchmake } from "../../src/app/api/game/matchmake/route"
 import { GET as getStatus } from "../../src/app/api/game/status/route"
@@ -27,11 +27,11 @@ function authNextReq(url: string, userId: string, method = "GET", body?: unknown
   })
 }
 
-let testBugId: string
+let testBugIds: string[]
 
 before(async () => {
   await seedTestUsers()
-  testBugId = await getFirstActiveBugId()
+  testBugIds = await getFirstNActiveBugIds(3)
 })
 
 after(async () => {
@@ -79,19 +79,20 @@ const SUBMIT_GAME_ID = `test-submit-${Date.now()}`
 
 describe("submit flow", () => {
   before(async () => {
-    await seedTestGame(SUBMIT_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugId, "active")
+    await seedTestGame(SUBMIT_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugIds, "active")
   })
 
   after(async () => {
     await cleanupTestGame(SUBMIT_GAME_ID)
   })
 
-  test("GET /api/game/status returns active game with bug (no correctAnswer)", async () => {
+  test("GET /api/game/status returns active game with round-0 bug (no correctAnswer)", async () => {
     const req = authNextReq(`http://localhost/api/game/status?gameId=${SUBMIT_GAME_ID}`, TEST_USER_1.userId)
     const res = await getStatus(req)
     assert.equal(res.status, 200)
-    const body = await res.json() as { game: { status: string }, bug: Record<string, unknown> }
+    const body = await res.json() as { game: { status: string, currentRound: number }, bug: Record<string, unknown> }
     assert.equal(body.game.status, "active")
+    assert.equal(body.game.currentRound, 0)
     assert.ok(body.bug, "bug should be present for active game")
     assert.equal(body.bug.correctAnswer, undefined, "correctAnswer must not be exposed during game")
   })
@@ -100,29 +101,83 @@ describe("submit flow", () => {
     const req = new NextRequest("http://localhost/api/game/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gameId: SUBMIT_GAME_ID, answer: 0 }),
+      body: JSON.stringify({ gameId: SUBMIT_GAME_ID, roundIndex: 0, answer: 0 }),
     })
     const res = await submit(req)
     assert.equal(res.status, 401)
   })
 
-  test("POST /api/game/submit accepts answer and returns correct boolean", async () => {
-    const req = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, answer: 0 })
+  test("POST /api/game/submit returns 400 for wrong round", async () => {
+    const req = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, roundIndex: 1, answer: 0 })
+    const res = await submit(req)
+    assert.equal(res.status, 400)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, "Wrong round")
+  })
+
+  test("POST /api/game/submit accepts answer and returns correct boolean + roundIndex", async () => {
+    const req = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, roundIndex: 0, answer: 0 })
     const res = await submit(req)
     assert.ok([200, 409].includes(res.status), `expected 200 or 409, got ${res.status}`)
     if (res.status === 200) {
-      const body = await res.json() as { correct: boolean }
+      const body = await res.json() as { correct: boolean, roundIndex: number }
       assert.equal(typeof body.correct, "boolean")
+      assert.equal(body.roundIndex, 0)
     }
   })
 
   test("POST /api/game/submit returns 409 on double-submit", async () => {
     // First submit (may already be done from previous test)
-    const req1 = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, answer: 1 })
+    const req1 = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, roundIndex: 0, answer: 1 })
     await submit(req1) // ignore result — may be 200 or 409
     // Second submit must always be 409
-    const req2 = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, answer: 2 })
+    const req2 = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: SUBMIT_GAME_ID, roundIndex: 0, answer: 2 })
     const res2 = await submit(req2)
     assert.equal(res2.status, 409)
+  })
+})
+
+// ---- Full 3-round resolution flow ----
+
+const FULL_GAME_ID = `test-fullgame-${Date.now()}`
+
+describe("full 3-round game resolution", () => {
+  before(async () => {
+    await seedTestGame(FULL_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, testBugIds, "active")
+  })
+
+  after(async () => {
+    await cleanupTestGame(FULL_GAME_ID)
+  })
+
+  test("both players answering each round advances currentRound, then resolves the game", async () => {
+    for (let round = 0; round < 3; round++) {
+      const statusReq = authNextReq(`http://localhost/api/game/status?gameId=${FULL_GAME_ID}`, TEST_USER_1.userId)
+      const statusRes = await getStatus(statusReq)
+      const statusBody = await statusRes.json() as { game: { currentRound: number, status: string } }
+
+      if (statusBody.game.status === "completed") break
+      assert.equal(statusBody.game.currentRound, round, `expected currentRound to be ${round}`)
+
+      const req1 = authNextReq("http://localhost/api/game/submit", TEST_USER_1.userId, "POST", { gameId: FULL_GAME_ID, roundIndex: round, answer: 0 })
+      const res1 = await submit(req1)
+      assert.ok([200, 409].includes(res1.status))
+
+      const req2 = authNextReq("http://localhost/api/game/submit", TEST_USER_2.userId, "POST", { gameId: FULL_GAME_ID, roundIndex: round, answer: 1 })
+      const res2 = await submit(req2)
+      assert.ok([200, 409].includes(res2.status))
+    }
+
+    const finalReq = authNextReq(`http://localhost/api/game/status?gameId=${FULL_GAME_ID}`, TEST_USER_1.userId)
+    const finalRes = await getStatus(finalReq)
+    const finalBody = await finalRes.json() as { game: { status: string, winnerId: string | null, currentRound: number } }
+    assert.equal(finalBody.game.status, "completed")
+    assert.equal(finalBody.game.currentRound, 3)
+    // winnerId is either a participant or null (draw)
+    assert.ok(
+      finalBody.game.winnerId === null ||
+      finalBody.game.winnerId === TEST_USER_1.userId ||
+      finalBody.game.winnerId === TEST_USER_2.userId
+    )
   })
 })

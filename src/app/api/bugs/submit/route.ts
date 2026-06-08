@@ -13,19 +13,6 @@ export async function POST(req: NextRequest) {
 
   const userId = session.user.id
 
-  // Rate limit: 3 submissions per day
-  let allowed = true
-  try {
-    allowed = await rateLimitCheck(userId, "bug_submit", 3, 86400)
-  } catch {
-    // Redis unavailable — allow through
-  }
-  if (!allowed)
-    return NextResponse.json(
-      { error: "Daily submission limit reached (3/day)" },
-      { status: 429 }
-    )
-
   let body: {
     language?: string
     category?: string
@@ -93,6 +80,21 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Rate limit: 3 submissions per day. Checked here (after validation passes,
+  // not at the top of the handler) so malformed/incomplete requests (400s)
+  // don't burn one of the user's daily attempts before a real submission is made.
+  let allowed = true
+  try {
+    allowed = await rateLimitCheck(userId, "bug_submit", 3, 86400)
+  } catch {
+    // Redis unavailable — allow through
+  }
+  if (!allowed)
+    return NextResponse.json(
+      { error: "Daily submission limit reached (3/day)" },
+      { status: 429 }
+    )
+
   // Bedrock quality check — score 0-1, reject below 0.7
   let qualityScore = 1.0
   let qualityFeedback = "Accepted"
@@ -124,8 +126,15 @@ Return JSON only: {"score":0.0-1.0,"feedback":"one sentence"}`
       JSON.parse(new TextDecoder().decode(response.body))?.output?.message
         ?.content?.[0]?.text ?? "{}"
     const parsed = JSON.parse(text.replace(/```json|```/g, "").trim())
-    qualityScore = parsed.score ?? 1.0
-    qualityFeedback = parsed.feedback ?? "Accepted"
+    // Guard against malformed AI responses (e.g. a stringified score) — a
+    // non-numeric `score` would make `qualityScore < 0.7` evaluate to false
+    // (NaN comparison), silently letting low-quality submissions through.
+    if (typeof parsed.score === "number" && !Number.isNaN(parsed.score)) {
+      qualityScore = parsed.score
+    }
+    if (typeof parsed.feedback === "string") {
+      qualityFeedback = parsed.feedback
+    }
   } catch {
     // If Bedrock fails, proceed with default score
   }

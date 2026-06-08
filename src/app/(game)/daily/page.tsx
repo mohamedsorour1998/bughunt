@@ -179,9 +179,24 @@ export default function DailyChallengePage() {
 
   function handleShare() {
     if (!payload) return
-    const timeMs = result?.rank != null ? elapsedMs : 0
-    const rank = result?.rank ?? ""
-    const correct = result?.correct ?? payload.submission?.correct ?? false
+    // Use the same result-or-revisit fallback as the rest of the page so Share
+    // reflects what's displayed even when `result` wasn't freshly populated
+    // (e.g. the user revisited after already submitting).
+    const submissionData = result ?? (payload.submission
+      ? {
+          correct: payload.submission.correct,
+          correctAnswer: payload.bug.correctAnswer ?? 0,
+          explanation: payload.bug.explanation ?? "",
+          rank: null,
+        }
+      : null)
+    // elapsedMs is correctly populated whether from a fresh submit or a revisit
+    // (see the fetchDaily effect), so gate on having a submission at all rather
+    // than on `rank` (which is always null for revisits — the API only returns
+    // rank on the initial submit response).
+    const timeMs = submissionData != null ? elapsedMs : 0
+    const rank = submissionData?.rank ?? ""
+    const correct = submissionData?.correct ?? false
     const url = `${window.location.origin}/share/daily/${payload.date}?correct=${correct}&time=${timeMs}&rank=${rank}`
     navigator.clipboard.writeText(url).then(() => {
       toast.success("Share link copied!")

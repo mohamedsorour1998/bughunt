@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid"
 import {
   getItem,
   putItem,
+  putItemIfNotExists,
   updateItem,
   queryItems,
   ddb,
@@ -141,18 +142,13 @@ export async function joinOrg(
 
   const orgId = (items[0].orgId as string) ?? (items[0].gsi1sk as string)
 
-  // Check user is not already a member
-  const existing = await getItem(`ORG#${orgId}`, `MEMBER#${userId}`)
-  if (existing) {
-    return { success: false, error: "Already a member of this org" }
-  }
-
   const now = Date.now()
   const orgMeta = await getItem(`ORG#${orgId}`, "META") as (Org & { pk: string; sk: string }) | null
   if (!orgMeta) return { success: false, error: "Org not found" }
 
-  // Write member item
-  await putItem({
+  // Atomically gate membership creation — concurrent joins can't both win,
+  // preventing the memberCount/leaderboard side effects from running twice
+  const created = await putItemIfNotExists({
     pk: `ORG#${orgId}`,
     sk: `MEMBER#${userId}`,
     orgId,
@@ -162,6 +158,9 @@ export async function joinOrg(
     joinedAt: now,
     role: "member",
   })
+  if (!created) {
+    return { success: false, error: "Already a member of this org" }
+  }
 
   // Write reverse user index
   await putItem({

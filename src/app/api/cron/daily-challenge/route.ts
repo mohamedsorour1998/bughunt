@@ -73,13 +73,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Write DynamoDB + Redis
-  await setDailyMeta(date, selected.bugId)
+  // Write DynamoDB (conditional — guards against a concurrent invocation winning the race)
+  let finalBugId = selected.bugId
+  const wrote = await setDailyMeta(date, selected.bugId)
+  if (!wrote) {
+    // Another invocation already seeded today's challenge — defer to its choice
+    // so DynamoDB and Redis never diverge.
+    const winner = await getDailyMeta(date)
+    finalBugId = winner?.bugId ?? selected.bugId
+  }
+
   try {
-    await setDailyChallengeBugId(date, selected.bugId)
+    await setDailyChallengeBugId(date, finalBugId)
   } catch {
     // Redis failure is non-fatal — DynamoDB is the source of truth
   }
 
-  return NextResponse.json({ status: "ok", date, bugId: selected.bugId })
+  return NextResponse.json({
+    status: wrote ? "ok" : "already_set",
+    date,
+    bugId: finalBugId,
+  })
 }

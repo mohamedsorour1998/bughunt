@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
-import { putItem, deleteItem, ddb, TABLE_NAME } from "@/lib/dynamodb"
+import { putItemIfNotExists, deleteItem, ddb, TABLE_NAME, cacheDel } from "@/lib/dynamodb"
 import { getUser } from "@/lib/users"
-import { UpdateCommand } from "@aws-sdk/lib-dynamodb"
+import { UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb"
 
 export async function POST(req: NextRequest) {
   const session = (await safeAuth()) ?? getTestSession(req) ?? (await getTestSessionFromCookies())
@@ -27,7 +27,9 @@ export async function POST(req: NextRequest) {
   const now = Date.now()
 
   // Forward relationship: USER#followerId / FOLLOWS#followeeId
-  await putItem({
+  // Gate the reverse-index write and counter math on this result so a duplicate
+  // follow call (edge already exists) never double-creates edges or double-counts.
+  const created = await putItemIfNotExists({
     pk: `USER#${followerId}`,
     sk: `FOLLOWS#${followeeId}`,
     followerId,
@@ -37,33 +39,39 @@ export async function POST(req: NextRequest) {
     followeeElo: followee.elo,
   })
 
-  // Reverse index: USER#followeeId / FOLLOWER#followerId
-  await putItem({
-    pk: `USER#${followeeId}`,
-    sk: `FOLLOWER#${followerId}`,
-    followerId,
-    followeeId,
-    followedAt: now,
-    followerDisplayName: follower?.displayName ?? "Unknown",
-  })
+  if (created) {
+    // Reverse index: USER#followeeId / FOLLOWER#followerId
+    await putItemIfNotExists({
+      pk: `USER#${followeeId}`,
+      sk: `FOLLOWER#${followerId}`,
+      followerId,
+      followeeId,
+      followedAt: now,
+      followerDisplayName: follower?.displayName ?? "Unknown",
+    })
 
-  // Increment followerCount on followee profile
-  await ddb.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `USER#${followeeId}`, sk: "PROFILE" },
-    UpdateExpression: "ADD #fc :inc",
-    ExpressionAttributeNames: { "#fc": "followerCount" },
-    ExpressionAttributeValues: { ":inc": 1 },
-  }))
+    // Increment followerCount on followee profile
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `USER#${followeeId}`, sk: "PROFILE" },
+      UpdateExpression: "ADD #fc :inc",
+      ExpressionAttributeNames: { "#fc": "followerCount" },
+      ExpressionAttributeValues: { ":inc": 1 },
+    }))
 
-  // Increment followingCount on follower profile
-  await ddb.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `USER#${followerId}`, sk: "PROFILE" },
-    UpdateExpression: "ADD #fc :inc",
-    ExpressionAttributeNames: { "#fc": "followingCount" },
-    ExpressionAttributeValues: { ":inc": 1 },
-  }))
+    // Increment followingCount on follower profile
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `USER#${followerId}`, sk: "PROFILE" },
+      UpdateExpression: "ADD #fc :inc",
+      ExpressionAttributeNames: { "#fc": "followingCount" },
+      ExpressionAttributeValues: { ":inc": 1 },
+    }))
+
+    // Bypass updateUser, so invalidate the 30s profile cache directly
+    cacheDel(`user:${followeeId}`)
+    cacheDel(`user:${followerId}`)
+  }
 
   return NextResponse.json({ ok: true })
 }
@@ -79,28 +87,48 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Missing followeeId" }, { status: 400 })
   }
 
-  await Promise.all([
-    deleteItem(`USER#${followerId}`, `FOLLOWS#${followeeId}`),
-    deleteItem(`USER#${followeeId}`, `FOLLOWER#${followerId}`),
-  ])
+  // Conditional delete: only decrement counts if the edge actually existed,
+  // so duplicate/no-op unfollow calls can't drive counters negative.
+  let removed = true
+  try {
+    await ddb.send(new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `USER#${followerId}`, sk: `FOLLOWS#${followeeId}` },
+      ConditionExpression: "attribute_exists(pk)",
+    }))
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      removed = false
+    } else {
+      throw err
+    }
+  }
 
-  // Decrement followerCount on followee profile
-  await ddb.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `USER#${followeeId}`, sk: "PROFILE" },
-    UpdateExpression: "ADD #fc :dec",
-    ExpressionAttributeNames: { "#fc": "followerCount" },
-    ExpressionAttributeValues: { ":dec": -1 },
-  }))
+  if (removed) {
+    await deleteItem(`USER#${followeeId}`, `FOLLOWER#${followerId}`)
 
-  // Decrement followingCount on follower profile
-  await ddb.send(new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: { pk: `USER#${followerId}`, sk: "PROFILE" },
-    UpdateExpression: "ADD #fc :dec",
-    ExpressionAttributeNames: { "#fc": "followingCount" },
-    ExpressionAttributeValues: { ":dec": -1 },
-  }))
+    // Decrement followerCount on followee profile
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `USER#${followeeId}`, sk: "PROFILE" },
+      UpdateExpression: "ADD #fc :dec",
+      ExpressionAttributeNames: { "#fc": "followerCount" },
+      ExpressionAttributeValues: { ":dec": -1 },
+    }))
+
+    // Decrement followingCount on follower profile
+    await ddb.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `USER#${followerId}`, sk: "PROFILE" },
+      UpdateExpression: "ADD #fc :dec",
+      ExpressionAttributeNames: { "#fc": "followingCount" },
+      ExpressionAttributeValues: { ":dec": -1 },
+    }))
+
+    // Bypass updateUser, so invalidate the 30s profile cache directly
+    cacheDel(`user:${followeeId}`)
+    cacheDel(`user:${followerId}`)
+  }
 
   return NextResponse.json({ ok: true })
 }

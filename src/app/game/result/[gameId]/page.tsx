@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useParams } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -29,6 +29,7 @@ interface GameData {
   gameId: string
   player1Id: string
   player2Id: string
+  bugIds: string[]
   bugId: string
   status: string
   winnerId: string | null
@@ -38,6 +39,7 @@ interface GameData {
 }
 
 interface BugData {
+  bugId?: string
   language: string
   category: string
   difficulty: number
@@ -49,12 +51,17 @@ interface BugData {
   hint: string
 }
 
-interface PlayerRecord {
-  userId: string
+interface RoundAnswer {
+  bugId: string
   answer: number | null
   correct: boolean | null
   submittedAt: number | null
   timeElapsedMs: number | null
+}
+
+interface PlayerRecord {
+  userId: string
+  answers: RoundAnswer[]
 }
 
 interface MatchHistoryEntry {
@@ -69,6 +76,7 @@ interface MatchHistoryEntry {
 interface GameDetailResponse {
   game: GameData
   bug: BugData | null
+  bugs: BugData[] | null
   players: {
     player1: PlayerRecord | null
     player2: PlayerRecord | null
@@ -114,6 +122,18 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<GameDetailResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Rematch polling timers — tracked in refs so they can be cleared on unmount
+  const rematchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const rematchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear any in-flight rematch poll timers on unmount
+  useEffect(() => {
+    return () => {
+      if (rematchIntervalRef.current) clearInterval(rematchIntervalRef.current)
+      if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!gameId) return
@@ -174,7 +194,7 @@ export default function ResultPage() {
   }
 
   // Error / not found
-  if (error || !data || !data.bug) {
+  if (error || !data || !data.bugs || data.bugs.length === 0) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-4">
         <div className="text-center">
@@ -190,7 +210,7 @@ export default function ResultPage() {
     )
   }
 
-  const { game, bug, players, matchHistoryEntry } = data
+  const { game, bugs, players, matchHistoryEntry } = data
   const userId = session?.user?.id
 
   // Determine which player is me and which is the opponent
@@ -230,7 +250,7 @@ export default function ResultPage() {
           player1Id: game.player1Id,
           player2Id: game.player2Id,
         }}
-        bug={bug}
+        bugs={bugs}
         myRecord={myRecord}
         opponentRecord={opponentRecord}
         eloChange={eloChange}
@@ -240,19 +260,32 @@ export default function ResultPage() {
         opponentId={opponentRecord?.userId}
         onRematch={() => {
           // Poll for mutual rematch every 2s
-          const pollInterval = setInterval(async () => {
+          rematchIntervalRef.current = setInterval(async () => {
             if (!opponentRecord?.userId) return
             const res = await fetch(
               `/api/game/rematch/status?opponentId=${opponentRecord.userId}`
             )
             const data = await res.json()
             if (data.status === "matched" && data.gameId) {
-              clearInterval(pollInterval)
+              if (rematchIntervalRef.current) {
+                clearInterval(rematchIntervalRef.current)
+                rematchIntervalRef.current = null
+              }
+              if (rematchTimeoutRef.current) {
+                clearTimeout(rematchTimeoutRef.current)
+                rematchTimeoutRef.current = null
+              }
               router.push(`/play?gameId=${data.gameId}`)
             }
           }, 2000)
           // Auto-stop polling after 65s
-          setTimeout(() => clearInterval(pollInterval), 65_000)
+          rematchTimeoutRef.current = setTimeout(() => {
+            if (rematchIntervalRef.current) {
+              clearInterval(rematchIntervalRef.current)
+              rematchIntervalRef.current = null
+            }
+            rematchTimeoutRef.current = null
+          }, 65_000)
         }}
       />
 

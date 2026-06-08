@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { getUser, updateUser } from "@/lib/users"
 import { getActiveGameForUser, createGame } from "@/lib/game"
-import { selectBugForGame } from "@/lib/bugs"
+import { selectBugsForGame } from "@/lib/bugs"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
-import { enqueuePlayer, findMatch, dequeuePlayer, rateLimitCheck } from "@/lib/redis"
+import { enqueuePlayer, findAndClaimMatch, dequeuePlayer, rateLimitCheck } from "@/lib/redis"
 
 export async function POST(req: Request) {
   const session = (await safeAuth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
@@ -36,33 +36,41 @@ export async function POST(req: Request) {
   }
 
   const elo = userProfile.elo
-  const opponentId = await findMatch(userId, elo)
+  // Atomically claims the opponent (zrem) at selection time so two concurrent
+  // matchmake calls can't both pick the same queued player.
+  const opponentId = await findAndClaimMatch(userId, elo)
 
   if (opponentId) {
     const opponentProfile = await getUser(opponentId)
     const avgElo = Math.round((elo + (opponentProfile?.elo ?? elo)) / 2)
-    const bugForGame = await selectBugForGame(
+    const bugsForGame = await selectBugsForGame(
       avgElo,
       userProfile.bugsSeen,
       opponentProfile?.bugsSeen ?? []
     )
 
-    if (!bugForGame) {
+    if (!bugsForGame) {
+      // Opponent was already claimed (removed from queue) — re-enqueue them
+      // so they aren't stranded, then fall back to waiting ourselves.
+      await enqueuePlayer(opponentId, opponentProfile?.elo ?? elo)
       await enqueuePlayer(userId, elo)
       return NextResponse.json({ status: "waiting", gameId: null })
     }
 
-    // Dequeue both before creating game
-    await Promise.all([
-      dequeuePlayer(userId, elo),
-      dequeuePlayer(opponentId, opponentProfile?.elo ?? elo),
-    ])
+    const bugIds = bugsForGame.map((b) => b.bugId)
+
+    // Opponent is already removed from the queue (claimed atomically above);
+    // only we still need to be dequeued before creating the game.
+    await dequeuePlayer(userId, elo)
 
     let game
     try {
-      game = await createGame(userId, opponentId, bugForGame.bugId)
+      game = await createGame(userId, opponentId, bugIds)
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+        // Opponent was already claimed/removed from the queue — re-enqueue
+        // them too so they aren't stranded by this failed attempt.
+        await enqueuePlayer(opponentId, opponentProfile?.elo ?? elo)
         await enqueuePlayer(userId, elo)
         return NextResponse.json({ status: "waiting", gameId: null })
       }
@@ -71,9 +79,9 @@ export async function POST(req: Request) {
 
     // Update bugsSeen for both players
     await Promise.all([
-      updateUser(userId, { bugsSeen: [...new Set([...userProfile.bugsSeen, bugForGame.bugId])] }),
+      updateUser(userId, { bugsSeen: [...new Set([...userProfile.bugsSeen, ...bugIds])] }),
       opponentProfile
-        ? updateUser(opponentId, { bugsSeen: [...new Set([...opponentProfile.bugsSeen, bugForGame.bugId])] })
+        ? updateUser(opponentId, { bugsSeen: [...new Set([...opponentProfile.bugsSeen, ...bugIds])] })
         : Promise.resolve(),
     ])
 

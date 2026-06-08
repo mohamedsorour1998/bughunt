@@ -4,9 +4,9 @@ import { getBugIndex, getBug } from "@/lib/bugs"
 export async function GET(req: NextRequest) {
   const session = await import("@/lib/test-auth").then(m => m.safeAuth())
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const adminEmails = (process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim())
-  const email = (session.user as { email?: string }).email ?? ""
-  if (!adminEmails.includes(email)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  const adminEmails = (process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim()).filter(Boolean)
+  const email = (session.user as { email?: string }).email
+  if (!email || !adminEmails.includes(email)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const index = await getBugIndex()
   if (!index) return NextResponse.json({ bugs: [] })
@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
     .map(b => ({
       bugId: b!.bugId, language: b!.language, category: b!.category,
       difficulty: b!.difficulty,
-      ratingCount: (b as Record<string, unknown>).ratingCount as number ?? 0,
-      ratingSum: (b as Record<string, unknown>).ratingSum as number ?? 0,
-      ratingAvg: (b as Record<string, unknown>).ratingCount ? ((b as Record<string, unknown>).ratingSum as number) / ((b as Record<string, unknown>).ratingCount as number) : 2,
-      misratingScore: Math.abs(((b as Record<string, unknown>).ratingCount ? ((b as Record<string, unknown>).ratingSum as number) / ((b as Record<string, unknown>).ratingCount as number) : 2) - 2),
+      ratingCount: b!.ratingCount ?? 0,
+      ratingSum: b!.ratingSum ?? 0,
+      ratingAvg: b!.ratingCount ? (b!.ratingSum as number) / b!.ratingCount : 2,
+      misratingScore: Math.abs((b!.ratingCount ? (b!.ratingSum as number) / b!.ratingCount : 2) - 2),
     }))
     .sort((a, b) => b.misratingScore - a.misratingScore)
 

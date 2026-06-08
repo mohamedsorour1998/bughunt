@@ -1,7 +1,8 @@
 // src/app/api/game/[gameId]/chat/route.ts
 import { NextRequest, NextResponse } from "next/server"
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
-import { getItem, putItem, queryItems } from "@/lib/dynamodb"
+import { getItem, putItem, queryItems, ddb, TABLE_NAME } from "@/lib/dynamodb"
 import { getUser } from "@/lib/users"
 import { v4 as uuidv4 } from "uuid"
 
@@ -67,21 +68,29 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Chat only available after game completion" }, { status: 400 })
   }
 
-  // Count existing messages from this user in this game
-  const { items: existingMessages } = await queryItems(
-    "pk = :pk AND begins_with(sk, :skPrefix)",
-    { ":pk": `GAME#${gameId}`, ":skPrefix": "CHAT#" }
-  )
-
-  const userMessageCount = existingMessages.filter(
-    (item) => item.userId === userId
-  ).length
-
-  if (userMessageCount >= MAX_MESSAGES_PER_USER) {
-    return NextResponse.json(
-      { error: `Maximum ${MAX_MESSAGES_PER_USER} messages per player` },
-      { status: 429 }
+  // Atomically claim a message slot via a conditional counter increment —
+  // count-then-write on CHAT# items would race since each message has a
+  // unique sk (CHAT#<timestamp>#<userId>), so a per-user counter item with a
+  // conditional ADD is the only way to enforce the cap under concurrency.
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: `GAME#${gameId}`, sk: `CHAT_COUNT#${userId}` },
+        UpdateExpression: "ADD #cnt :one",
+        ConditionExpression: "attribute_not_exists(#cnt) OR #cnt < :max",
+        ExpressionAttributeNames: { "#cnt": "count" },
+        ExpressionAttributeValues: { ":one": 1, ":max": MAX_MESSAGES_PER_USER },
+      })
     )
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
+      return NextResponse.json(
+        { error: `Maximum ${MAX_MESSAGES_PER_USER} messages per player` },
+        { status: 429 }
+      )
+    }
+    throw err
   }
 
   const user = await getUser(userId)

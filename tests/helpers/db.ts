@@ -54,14 +54,28 @@ export async function getTestUserFromDB(userId: string): Promise<Record<string, 
   return res.Item ?? null
 }
 
+interface RoundAnswer {
+  bugId: string
+  answer: number | null
+  correct: boolean | null
+  submittedAt: number | null
+  timeElapsedMs: number | null
+}
+
+function emptyRoundAnswer(bugId: string): RoundAnswer {
+  return { bugId, answer: null, correct: null, submittedAt: null, timeElapsedMs: null }
+}
+
 export async function seedTestGame(
   gameId: string,
   player1Id: string,
   player2Id: string,
-  bugId: string,
+  bugIds: string[],
   status = "active"
 ): Promise<void> {
   const now = Date.now()
+  const roundStartedAt = bugIds.map((_, i) => (i === 0 ? now : 0))
+
   // Main game record
   await client.send(new PutCommand({
     TableName: TABLE_NAME,
@@ -73,7 +87,10 @@ export async function seedTestGame(
       gameId,
       player1Id,
       player2Id,
-      bugId,
+      bugIds,
+      bugId: bugIds[0],
+      currentRound: 0,
+      roundStartedAt,
       status,
       winnerId: null,
       createdAt: now,
@@ -89,6 +106,37 @@ export async function seedTestGame(
       gsi1pk: `ACTIVE_GAME#${player2Id}`,
       gsi1sk: gameId,
       expiresAt: Math.floor(now / 1000) + 86400 * 90,
+    },
+  }))
+  // Pre-filled GamePlayer records for both players (mirrors createGamePlayerRecord)
+  for (const userId of [player1Id, player2Id]) {
+    await client.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `GAME#${gameId}`,
+        sk: `PLAYER#${userId}`,
+        gameId,
+        userId,
+        answers: bugIds.map(emptyRoundAnswer),
+      },
+    }))
+  }
+}
+
+// Overwrite a player's answers array directly — useful for seeding completed-game fixtures
+export async function seedGamePlayerAnswers(
+  gameId: string,
+  userId: string,
+  answers: RoundAnswer[]
+): Promise<void> {
+  await client.send(new PutCommand({
+    TableName: TABLE_NAME,
+    Item: {
+      pk: `GAME#${gameId}`,
+      sk: `PLAYER#${userId}`,
+      gameId,
+      userId,
+      answers,
     },
   }))
 }
@@ -115,4 +163,14 @@ export async function getFirstActiveBugId(): Promise<string> {
   const ids = (res.Item?.bugIds as string[]) ?? []
   if (!ids.length) throw new Error("No bugs in BUG#INDEX — run npm run db:seed first")
   return ids[0]
+}
+
+export async function getFirstNActiveBugIds(n: number): Promise<string[]> {
+  const res = await client.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: { pk: "BUG#INDEX", sk: "META" },
+  }))
+  const ids = (res.Item?.bugIds as string[]) ?? []
+  if (ids.length < n) throw new Error(`Need ${n} bugs in BUG#INDEX — run npm run db:seed first`)
+  return ids.slice(0, n)
 }

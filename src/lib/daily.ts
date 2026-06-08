@@ -105,8 +105,13 @@ export async function getDailyMeta(date: string): Promise<DailyMeta | null> {
 // setDailyMeta — called by cron
 // ---------------------------------------------------------------------------
 
-export async function setDailyMeta(date: string, bugId: string): Promise<void> {
-  await putItem({
+/**
+ * Conditionally seed today's daily meta — only writes if no META item exists yet.
+ * Returns true when this call won the race and wrote the item, false when another
+ * concurrent invocation already seeded it (caller should re-fetch via getDailyMeta).
+ */
+export async function setDailyMeta(date: string, bugId: string): Promise<boolean> {
+  return putItemIfNotExists({
     pk: `DAILY#${date}`,
     sk: "META",
     date,
@@ -218,13 +223,16 @@ export async function submitDailyAnswer(
       submittedAt,
       expiresAt: midnightUTCEpoch(30),
     })
-    // Compute rank by counting entries with faster time
+    // Compute rank by counting entries with faster time.
+    // ConsistentRead avoids missing the sibling entry we (or a concurrent
+    // submitter) just wrote moments ago under a submission burst.
     const { items } = await queryItems(
       "pk = :pk AND sk < :sk",
       {
         ":pk": `LEADERBOARD#DAILY#${date}`,
         ":sk": `RANK#${padTime(timeElapsedMs)}#`,
-      }
+      },
+      { consistentRead: true }
     )
     rank = items.length + 1
   }

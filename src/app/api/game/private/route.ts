@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { createGame } from "@/lib/game"
-import { selectBugForGame } from "@/lib/bugs"
+import { selectBugsForGame } from "@/lib/bugs"
 import { getUser } from "@/lib/users"
 
 export async function POST(req: NextRequest) {
@@ -17,17 +17,17 @@ export async function POST(req: NextRequest) {
 
   const player1Profile = await getUser(player1Id)
 
-  const bug = await selectBugForGame(
+  const bugs = await selectBugsForGame(
     player1Profile?.elo ?? 1200,
     player1Profile?.bugsSeen ?? [],
     []
   )
 
-  if (!bug) {
+  if (!bugs) {
     return NextResponse.json({ error: "Bug not found" }, { status: 404 })
   }
 
-  const game = await createGame(player1Id, null, bug.bugId, {
+  const game = await createGame(player1Id, null, bugs.map((b) => b.bugId), {
     isPrivate: true,
     affectsElo: false,
     waitForPlayer2: true,

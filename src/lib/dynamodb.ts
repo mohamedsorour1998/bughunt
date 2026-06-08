@@ -187,6 +187,7 @@ export async function queryItems(
     limit?: number;
     exclusiveStartKey?: Record<string, unknown>;
     scanIndexForward?: boolean;
+    consistentRead?: boolean;
   }
 ): Promise<{
   items: Record<string, unknown>[];
@@ -210,6 +211,9 @@ export async function queryItems(
         : {}),
       ...(options?.scanIndexForward !== undefined
         ? { ScanIndexForward: options.scanIndexForward }
+        : {}),
+      ...(options?.consistentRead !== undefined
+        ? { ConsistentRead: options.consistentRead }
         : {}),
     })
   );

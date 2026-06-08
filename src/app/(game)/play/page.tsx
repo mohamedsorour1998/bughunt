@@ -34,25 +34,34 @@ interface GameData {
   gameId: string
   player1Id: string
   player2Id: string | null
+  bugIds: string[]
   bugId: string
+  currentRound: number
+  roundStartedAt: number[]
   status: "waiting" | "active" | "completed"
   winnerId: string | null
   createdAt: number
   expiresAt: number
 }
 
-interface PlayerRecord {
-  gameId: string
-  userId: string
+interface RoundAnswer {
+  bugId: string
   answer: number | null
   correct: boolean | null
   submittedAt: number | null
   timeElapsedMs: number | null
 }
 
+interface PlayerRecord {
+  gameId: string
+  userId: string
+  answers: RoundAnswer[]
+}
+
 interface StatusResponse {
   game: GameData
   bug: BugData | null
+  bugs: BugData[] | null
   player: PlayerRecord | null
 }
 
@@ -60,7 +69,10 @@ interface SubmitResult {
   correct: boolean
   answer: number
   submittedAt: number
+  roundIndex: number
 }
+
+const ROUNDS_PER_GAME = 3
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,6 +108,7 @@ export default function PlayPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const joinGameId = searchParams.get("join")
+  const rematchGameId = searchParams.get("gameId")
   const { data: session, status: sessionStatus } = useSession()
 
   const [playState, setPlayState] = useState<PlayState>("idle")
@@ -104,8 +117,8 @@ export default function PlayPage() {
   const [bugData, setBugData] = useState<BugData | null>(null)
   const [playerRecord, setPlayerRecord] = useState<PlayerRecord | null>(null)
   const [selectedAnswer, setSelectedAnswer] = useState<number | undefined>(undefined)
-  const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null)
-  const [opponentSubmitted, setOpponentSubmitted] = useState(false)
+  const [roundAnswers, setRoundAnswers] = useState<Record<number, SubmitResult>>({})
+  const [opponentSubmittedRounds, setOpponentSubmittedRounds] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const [cancelLoading, setCancelLoading] = useState(false)
 
@@ -161,20 +174,37 @@ export default function PlayPage() {
           if (!res.ok) return
           const data: StatusResponse = await res.json()
 
-          if (data.game) setGameData(data.game)
+          if (data.game) {
+            setGameData((prev) => {
+              if (prev && prev.currentRound !== data.game.currentRound) {
+                setSelectedAnswer(undefined)
+                if (data.bug) setBugData(data.bug)
+              }
+              return data.game
+            })
+          }
           if (data.player) setPlayerRecord(data.player)
 
-          // Detect opponent submission via the [gameId] route
+          // Detect per-round opponent submissions via the [gameId] route
           const detailRes = await fetch(`/api/game/${id}`)
           if (detailRes.ok) {
             const detail = await detailRes.json()
             const myId = session?.user?.id
             const isPlayer1 = data.game?.player1Id === myId
-            const opponentPlayer = isPlayer1
+            const opponentPlayer: { answers?: { submitted?: boolean }[] } | null = isPlayer1
               ? detail.players?.player2
               : detail.players?.player1
-            if (opponentPlayer?.submitted) {
-              setOpponentSubmitted(true)
+            if (opponentPlayer?.answers) {
+              const submittedRounds = opponentPlayer.answers
+                .map((a, i) => (a.submitted ? i : -1))
+                .filter((i) => i >= 0)
+              if (submittedRounds.length > 0) {
+                setOpponentSubmittedRounds((prev) => {
+                  const next = new Set(prev)
+                  submittedRounds.forEach((i) => next.add(i))
+                  return next
+                })
+              }
             }
           }
 
@@ -202,9 +232,26 @@ export default function PlayPage() {
       esRef.current = es
       es.onmessage = (event) => {
         try {
-          const data: { type: string; userId?: string } = JSON.parse(event.data)
-          if (data.type === "player_submitted" && data.userId !== session?.user?.id) {
-            setOpponentSubmitted(true)
+          const data: { type: string; userId?: string; roundIndex?: number; round?: number } = JSON.parse(event.data)
+          if (data.type === "player_submitted" && data.userId !== session?.user?.id && typeof data.roundIndex === "number") {
+            const idx = data.roundIndex
+            setOpponentSubmittedRounds((prev) => {
+              const next = new Set(prev)
+              next.add(idx)
+              return next
+            })
+          }
+          if (data.type === "round_advanced") {
+            setSelectedAnswer(undefined)
+            fetch(`/api/game/status?gameId=${id}`)
+              .then((res) => (res.ok ? res.json() : null))
+              .then((statusData: StatusResponse | null) => {
+                if (!statusData) return
+                setGameData(statusData.game)
+                setBugData(statusData.bug)
+                setPlayerRecord(statusData.player)
+              })
+              .catch(() => {})
           }
           if (data.type === "game_resolved") {
             stopSSE(); stopPolling()
@@ -341,6 +388,38 @@ export default function PlayPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, joinGameId])
 
+  // ---------------------------------------------------------------------------
+  // Rematch entry — triggered when ?gameId=<id> is in the URL (already-active
+  // game with both players assigned, created via createGame; just enter it)
+  // ---------------------------------------------------------------------------
+
+  async function handleEnterRematchGame(gId: string) {
+    setError(null)
+    try {
+      const statusRes = await fetch(`/api/game/status?gameId=${gId}`)
+      if (statusRes.ok) {
+        const statusData: StatusResponse = await statusRes.json()
+        setGameId(gId)
+        setGameData(statusData.game)
+        setBugData(statusData.bug)
+        setPlayerRecord(statusData.player)
+        setPlayState("playing")
+        startGameplayPolling(gId)
+      } else {
+        setError("Could not load rematch game")
+      }
+    } catch {
+      setError("Could not load rematch game")
+    }
+  }
+
+  // Auto-enter rematch game on mount when ?gameId param is present
+  useEffect(() => {
+    if (!session?.user?.id || !rematchGameId) return
+    handleEnterRematchGame(rematchGameId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, rematchGameId])
+
   async function handleCancel() {
     setCancelLoading(true)
     stopPolling(); stopSSE()
@@ -355,14 +434,16 @@ export default function PlayPage() {
       setBugData(null)
       setPlayerRecord(null)
       setSelectedAnswer(undefined)
-      setSubmitResult(null)
-      setOpponentSubmitted(false)
+      setRoundAnswers({})
+      setOpponentSubmittedRounds(new Set())
       setPlayState("idle")
     }
   }
 
   async function handleAnswer(index: number) {
-    if (!gameId || playState !== "playing") return
+    if (!gameId || playState !== "playing" || !gameData) return
+    const roundIndex = gameData.currentRound
+    if (roundAnswers[roundIndex] !== undefined) return
     setSelectedAnswer(index)
     setPlayState("submitting")
     setError(null)
@@ -371,7 +452,7 @@ export default function PlayPage() {
       const res = await fetch("/api/game/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId, answer: index }),
+        body: JSON.stringify({ gameId, roundIndex, answer: index }),
       })
 
       if (res.status === 409) {
@@ -386,10 +467,12 @@ export default function PlayPage() {
       }
 
       const result: SubmitResult = await res.json()
-      setSubmitResult(result)
+      setRoundAnswers((prev) => ({ ...prev, [result.roundIndex]: result }))
       setPlayState("playing")
-      // Continue polling for game completion
-      startGameplayPolling(gameId)
+      // The SSE/poll connection opened on entering "playing" stays alive across
+      // all rounds — restarting it here would race with the server publishing
+      // round_advanced right after both players submit (Redis pub/sub is
+      // fire-and-forget, so a mid-reconnect event would be silently dropped).
     } catch (err) {
       setError(err instanceof Error ? err.message : "Submission failed")
       setPlayState("playing")
@@ -397,12 +480,11 @@ export default function PlayPage() {
   }
 
   async function handleTimerExpire() {
-    if (!gameId) return
-    // Submit with the currently selected answer (or -1 mapped to 0 as fallback)
-    // The server rejects answers < 0 so we guard here; use 0 as timeout answer if nothing selected
+    if (!gameId || !gameData) return
+    // Submit with the currently selected answer (or 0 as fallback if nothing selected)
     const answer = selectedAnswer ?? 0
-    // Only auto-submit if not already submitted
-    if (submitResult === null) {
+    // Only auto-submit if this round hasn't been submitted yet
+    if (roundAnswers[gameData.currentRound] === undefined) {
       await handleAnswer(answer)
     }
   }
@@ -462,9 +544,14 @@ export default function PlayPage() {
   // ---------------------------------------------------------------------------
 
   if ((playState === "playing" || playState === "submitting") && gameData && bugData) {
-    const hasSubmitted = submitResult !== null
+    const currentRound = gameData.currentRound
+    const hasSubmitted =
+      roundAnswers[currentRound] !== undefined ||
+      playerRecord?.answers?.[currentRound]?.submittedAt != null
     const isSubmitting = playState === "submitting"
     const answersDisabled = hasSubmitted || isSubmitting
+    const opponentSubmitted = opponentSubmittedRounds.has(currentRound)
+    const roundStartedAt = gameData.roundStartedAt[currentRound] ?? gameData.createdAt
 
     return (
       <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
@@ -472,6 +559,9 @@ export default function PlayPage() {
           {/* Header row */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
+              <Badge variant="secondary" className="font-mono text-xs uppercase">
+                Round {currentRound + 1} of {ROUNDS_PER_GAME}
+              </Badge>
               <Badge variant="secondary" className="font-mono text-xs uppercase">
                 {bugData.language}
               </Badge>
@@ -485,7 +575,8 @@ export default function PlayPage() {
               </span>
 
               <GameTimer
-                createdAt={gameData.createdAt}
+                key={currentRound}
+                createdAt={roundStartedAt}
                 onExpire={handleTimerExpire}
               />
             </div>
@@ -532,7 +623,7 @@ export default function PlayPage() {
 
             <AnswerOptions
               options={bugData.options}
-              selectedAnswer={selectedAnswer}
+              selectedAnswer={selectedAnswer ?? playerRecord?.answers?.[currentRound]?.answer ?? undefined}
               disabled={answersDisabled}
               onAnswer={handleAnswer}
             />

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test"
-import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstActiveBugId } from "../helpers/db"
+import { seedTestUsers, cleanupTestUsers, seedTestGame, cleanupTestGame, getFirstNActiveBugIds } from "../helpers/db"
 import { TEST_USER_1, TEST_USER_2, TABLE_NAME } from "../helpers/fixtures"
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb"
@@ -31,11 +31,10 @@ async function seedMatchHistoryLookup(gameId: string, userId: string, result: "w
   }))
 }
 
-// Seed PLAYER# records so the result page can resolve player1/player2 records
-async function seedGamePlayers(gameId: string, player1Id: string, player2Id: string) {
+// Seed PLAYER# records (answers[] shape) so the result page can resolve player1/player2 records
+async function seedGamePlayers(gameId: string, player1Id: string, player2Id: string, bugIds: string[]) {
   const now = Date.now()
-  const expiresAt = Math.floor(now / 1000) + 86400 * 90
-  for (const [userId, correct] of [[player1Id, true], [player2Id, false]] as [string, boolean][]) {
+  for (const [userId, allCorrect] of [[player1Id, true], [player2Id, false]] as [string, boolean][]) {
     await ddb.send(new PutCommand({
       TableName: TABLE_NAME,
       Item: {
@@ -43,11 +42,13 @@ async function seedGamePlayers(gameId: string, player1Id: string, player2Id: str
         sk: `PLAYER#${userId}`,
         gameId,
         userId,
-        answer: 0,
-        correct,
-        submittedAt: now,
-        timeElapsedMs: 5000,
-        expiresAt,
+        answers: bugIds.map((bugId) => ({
+          bugId,
+          answer: 0,
+          correct: allCorrect,
+          submittedAt: now,
+          timeElapsedMs: 5000,
+        })),
       },
     }))
   }
@@ -67,9 +68,10 @@ async function mockSession(page: Page) {
 test.describe("Result page", () => {
   test.beforeAll(async () => {
     await seedTestUsers()
-    const bugId = await getFirstActiveBugId()
-    await seedTestGame(COMPLETED_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, bugId, "completed")
-    // Set winnerId on the game META so the result page knows who won
+    const bugIds = await getFirstNActiveBugIds(3)
+    await seedTestGame(COMPLETED_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, bugIds, "completed")
+    const now = Date.now()
+    // Set winnerId + completion fields on the game META so the result page knows who won
     await ddb.send(new PutCommand({
       TableName: TABLE_NAME,
       Item: {
@@ -80,14 +82,17 @@ test.describe("Result page", () => {
         gameId: COMPLETED_GAME_ID,
         player1Id: TEST_USER_1.userId,
         player2Id: TEST_USER_2.userId,
-        bugId: await getFirstActiveBugId(),
+        bugIds,
+        bugId: bugIds[0],
+        currentRound: 3,
+        roundStartedAt: [now - 30_000, now - 20_000, now - 10_000],
         status: "completed",
         winnerId: TEST_USER_1.userId,
-        createdAt: Date.now(),
-        expiresAt: Math.floor(Date.now() / 1000) + 86400 * 90,
+        createdAt: now - 30_000,
+        expiresAt: Math.floor(now / 1000) + 86400 * 90,
       },
     }))
-    await seedGamePlayers(COMPLETED_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId)
+    await seedGamePlayers(COMPLETED_GAME_ID, TEST_USER_1.userId, TEST_USER_2.userId, bugIds)
     await seedMatchHistoryLookup(COMPLETED_GAME_ID, TEST_USER_1.userId, "win")
   })
 
@@ -115,6 +120,13 @@ test.describe("Result page", () => {
     await page.goto(`/game/result/${COMPLETED_GAME_ID}`)
     // Should show something like "+16 Elo" or just "Elo"
     await expect(page.getByText(/Elo/i).first()).toBeVisible({ timeout: 8000 })
+  })
+
+  test("result page shows a per-round breakdown for all 3 rounds", async ({ page }) => {
+    await page.goto(`/game/result/${COMPLETED_GAME_ID}`)
+    await expect(page.getByText(/Round 1 of 3/i).first()).toBeVisible({ timeout: 8000 })
+    await expect(page.getByText(/Round 2 of 3/i).first()).toBeVisible({ timeout: 8000 })
+    await expect(page.getByText(/Round 3 of 3/i).first()).toBeVisible({ timeout: 8000 })
   })
 
   test("result page shows Play Again button", async ({ page }) => {

@@ -33,11 +33,17 @@ function Countdown({ targetMs }: { targetMs: number }) {
 const STATUS_LABELS: Record<string, string> = {
   registration_open: "Registration Open",
   registration_closed: "Starting",
-  round_1: "Round 1 Active",
-  round_2: "Round 2 Active",
   final: "Final",
   completed: "Completed",
   created: "Upcoming",
+}
+
+// Falls back to "Round <n> Active" for any "round_<n>" status (generic brackets)
+function statusLabel(status: string): string {
+  if (STATUS_LABELS[status]) return STATUS_LABELS[status]
+  const m = status.match(/^round_(\d+)$/)
+  if (m) return `Round ${m[1]} Active`
+  return status
 }
 
 export default function TournamentsPage() {
@@ -67,8 +73,7 @@ export default function TournamentsPage() {
   )
   const active = tournaments.filter(
     (t) =>
-      t.status === "round_1" ||
-      t.status === "round_2" ||
+      t.status.startsWith("round_") ||
       t.status === "final" ||
       t.status === "registration_closed"
   )
@@ -90,7 +95,7 @@ export default function TournamentsPage() {
               <CardContent className="flex items-center justify-between gap-4">
                 <div className="space-y-1">
                   <p className="text-xs text-white/50">
-                    {STATUS_LABELS[t.status]}
+                    {statusLabel(t.status)}
                   </p>
                   <p className="text-xs text-white/40">
                     {t.registeredPlayers.length} / {t.maxPlayers} players
@@ -137,7 +142,7 @@ export default function TournamentsPage() {
               <CardContent className="flex items-center justify-between gap-4">
                 <div className="space-y-1">
                   <p className="text-xs font-semibold text-yellow-300">
-                    {STATUS_LABELS[t.status]}
+                    {statusLabel(t.status)}
                   </p>
                   <p className="text-xs text-white/40">
                     {t.registeredPlayers.length} players
