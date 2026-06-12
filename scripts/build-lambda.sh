@@ -8,10 +8,13 @@ LAMBDA_DIR="$(cd "$(dirname "$0")/../lambda/leaderboard-updater" && pwd)"
 
 echo "Installing Lambda dependencies..."
 cd "$LAMBDA_DIR"
-npm install --omit=dev 2>/dev/null || npm install
+npm install
 
 echo "Compiling TypeScript..."
 npm run build
+
+echo "Pruning dev dependencies for deployment..."
+npm prune --omit=dev
 
 echo ""
 echo "Build complete: $LAMBDA_DIR/dist/index.js"

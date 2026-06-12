@@ -4,6 +4,7 @@
 /node_modules
 lambda/leaderboard-updater/node_modules
 lambda/leaderboard-updater/dist
+/lambda-*.zip
 /.pnp
 .pnp.*
 .yarn/*

@@ -77,7 +77,7 @@ if [[ -z "$EXISTING" || "$EXISTING" == "None" ]]; then
     --event-source-arn "$STREAM_ARN" \
     --starting-position LATEST \
     --batch-size 10 \
-    --bisect-batch-on-function-error true \
+    --bisect-batch-on-function-error \
     --region "$REGION"
 else
   echo "Event source mapping already exists (UUID: $EXISTING) — skipping."
