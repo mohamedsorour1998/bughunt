@@ -3,6 +3,11 @@
  * LEADERBOARD#SEASON#1, then rebuild them from current USER#…/PROFILE items.
  * Run after deploying the fixed Streams Lambda, or whenever the boards drift.
  *
+ * wipeBoard deletes every row under each pk, including the leaderboard
+ * Lambda's CURSOR#<userId> ordering rows — fine before live traffic, but
+ * don't run this while games are actively resolving (resets per-user seq
+ * cursors, which only self-heals for events that arrive after the reset).
+ *
  *   npx tsx scripts/rebuild-leaderboard.ts
  */
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
