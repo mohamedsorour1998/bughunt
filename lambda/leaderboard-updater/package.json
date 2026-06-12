@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "npx tsc --outDir dist --module commonjs --target es2020 --esModuleInterop true --strict true index.ts"
+    "build": "npx tsc --outDir dist --module commonjs --target es2020 --esModuleInterop true --strict true index.ts",
+    "test": "npx tsx index.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1057.0",
@@ -11,6 +12,7 @@
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
+    "tsx": "^4.22.3",
     "typescript": "^5.0.0"
   }
 }
