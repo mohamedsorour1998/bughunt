@@ -92,6 +92,12 @@ export async function ensureBotProfile(bot: BotUser): Promise<void> {
     bugsSeen: [],
     achievementsUnlocked: [],
     streakShields: 0,
+    dailyStreak: 0,
+    lastDailyDate: null,
+    bugsSubmitted: 0,
+    bugsRejected: 0,
+    followerCount: 0,
+    followingCount: 0,
     createdAt: Date.now(),
   })
 }
