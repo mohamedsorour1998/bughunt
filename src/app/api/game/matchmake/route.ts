@@ -3,7 +3,11 @@ import { getUser, updateUser } from "@/lib/users"
 import { getActiveGameForUser, createGame } from "@/lib/game"
 import { selectBugsForGame } from "@/lib/bugs"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
-import { enqueuePlayer, findAndClaimMatch, dequeuePlayer, rateLimitCheck } from "@/lib/redis"
+import {
+  enqueuePlayer, findAndClaimMatch, dequeuePlayer, rateLimitCheck,
+  markQueueJoined, getQueueJoinedAt, clearQueueJoined,
+} from "@/lib/redis"
+import { pickBotForElo, ensureBotProfile } from "@/lib/bot"
 
 export async function POST(req: Request) {
   const session = (await safeAuth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
@@ -54,6 +58,7 @@ export async function POST(req: Request) {
       // so they aren't stranded, then fall back to waiting ourselves.
       await enqueuePlayer(opponentId, opponentProfile?.elo ?? elo)
       await enqueuePlayer(userId, elo)
+      await markQueueJoined(userId)
       return NextResponse.json({ status: "waiting", gameId: null })
     }
 
@@ -72,10 +77,14 @@ export async function POST(req: Request) {
         // them too so they aren't stranded by this failed attempt.
         await enqueuePlayer(opponentId, opponentProfile?.elo ?? elo)
         await enqueuePlayer(userId, elo)
+        await markQueueJoined(userId)
         return NextResponse.json({ status: "waiting", gameId: null })
       }
       throw err
     }
+
+    await clearQueueJoined(userId)
+    await clearQueueJoined(opponentId)
 
     // Update bugsSeen for both players
     await Promise.all([
@@ -88,7 +97,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ gameId: game.gameId, status: "active" })
   }
 
-  // No opponent — add to queue
+  // No human opponent — stay queued, and track how long we've been waiting.
   await enqueuePlayer(userId, elo)
+  await markQueueJoined(userId)
+
+  // Bot fallback: if we've waited long enough, summon a Nova bot near our Elo.
+  const botAfterMs = Number(process.env.BOT_MATCH_AFTER_MS ?? 10_000)
+  const joinedAt = await getQueueJoinedAt(userId)
+  const waitedMs = joinedAt != null ? Date.now() - joinedAt : 0
+
+  if (waitedMs >= botAfterMs) {
+    const bot = pickBotForElo(elo)
+    await ensureBotProfile(bot)
+    const bugsForGame = await selectBugsForGame(
+      Math.round((elo + bot.elo) / 2),
+      userProfile.bugsSeen,
+      [] // bots replay bugs freely
+    )
+    if (bugsForGame) {
+      const bugIds = bugsForGame.map((b) => b.bugId)
+      await dequeuePlayer(userId, elo)
+      await clearQueueJoined(userId)
+      const game = await createGame(userId, bot.userId, bugIds)
+      await updateUser(userId, { bugsSeen: [...new Set([...userProfile.bugsSeen, ...bugIds])] })
+      return NextResponse.json({ gameId: game.gameId, status: "active", opponentIsBot: true })
+    }
+  }
+
   return NextResponse.json({ status: "waiting", gameId: null })
 }

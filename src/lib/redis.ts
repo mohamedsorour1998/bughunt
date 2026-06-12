@@ -58,6 +58,24 @@ export async function dequeuePlayer(userId: string, elo: number): Promise<void> 
   await redis.zrem(`queue:${eloRangeBucket(elo)}`, userId)
 }
 
+/**
+ * Queue-wait clock for the bot fallback. Stored separately from the zset
+ * (whose score is refreshed on every matchmake poll) under NX so the FIRST
+ * enqueue time survives re-polls. EX 300 self-heals abandoned entries.
+ */
+export async function markQueueJoined(userId: string): Promise<void> {
+  await redis.set(`queue_joined:${userId}`, Date.now(), { nx: true, ex: 300 })
+}
+
+export async function getQueueJoinedAt(userId: string): Promise<number | null> {
+  const v = await redis.get<number>(`queue_joined:${userId}`)
+  return v ?? null
+}
+
+export async function clearQueueJoined(userId: string): Promise<void> {
+  await redis.del(`queue_joined:${userId}`)
+}
+
 export type GameEvent =
   | { type: "player_submitted"; userId: string; roundIndex: number; correct: boolean; timeElapsedMs: number }
   | { type: "round_advanced"; round: number }

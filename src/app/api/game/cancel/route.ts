@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getUser } from "@/lib/users"
-import { dequeuePlayer } from "@/lib/redis"
+import { dequeuePlayer, clearQueueJoined } from "@/lib/redis"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 
 export async function POST(req: Request) {
@@ -16,6 +16,7 @@ export async function POST(req: Request) {
   const userProfile = await getUser(userId)
   if (userProfile) {
     await dequeuePlayer(userId, userProfile.elo).catch(() => {})
+    await clearQueueJoined(userId).catch(() => {})
   }
 
   return NextResponse.json({ cancelled: true })
