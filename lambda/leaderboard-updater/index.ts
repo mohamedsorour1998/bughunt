@@ -225,22 +225,22 @@ async function processRecord(record: DynamoDBStreamEvent["Records"][0]): Promise
   const players: Array<{ userId: string; eloBefore: number; eloAfter: number; seq: number }> = []
 
   const p1 = img.player1Id as string
-  if (p1 && !isBot(p1)) {
+  if (p1 && !isBot(p1) && typeof img.p1Seq === "number") {
     players.push({
       userId: p1,
       eloBefore: (img.p1EloBefore as number) ?? (img.p1EloAfter as number),
       eloAfter: img.p1EloAfter as number,
-      seq: img.p1Seq as number,
+      seq: img.p1Seq,
     })
   }
 
   const p2 = img.player2Id as string | null
-  if (p2 && !isBot(p2) && typeof img.p2EloAfter === "number") {
+  if (p2 && !isBot(p2) && typeof img.p2EloAfter === "number" && typeof img.p2Seq === "number") {
     players.push({
       userId: p2,
       eloBefore: (img.p2EloBefore as number) ?? (img.p2EloAfter as number),
       eloAfter: img.p2EloAfter as number,
-      seq: img.p2Seq as number,
+      seq: img.p2Seq,
     })
   }
 
