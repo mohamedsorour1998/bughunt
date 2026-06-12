@@ -7,7 +7,8 @@
 ## What is BugHunt?
 
 BugHunt is a competitive debugging platform — chess.com, but for finding bugs. Two players are matched
-and shown the same buggy code snippet; the first to correctly identify the bug wins Elo points. Beyond
+and race through the same 3 buggy code snippets (one per round, 120s each); most correct answers wins,
+with total time as the tiebreak, and the winner takes Elo points. Beyond
 1v1 ranked play, BugHunt also has daily challenges, practice mode, tournaments with brackets, org/team
 leaderboards, a social layer (follow, feed, direct challenges), notifications, post-game chat, rematches,
 and community bug submissions with AI-assisted quality filtering.
