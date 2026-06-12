@@ -55,6 +55,12 @@ async function createTable(): Promise<string> {
     TableName: TABLE_NAME,
     BillingMode: "PAY_PER_REQUEST", // on-demand — no capacity planning needed
 
+    // DynamoDB Streams feed the leaderboard-updater Lambda
+    StreamSpecification: {
+      StreamEnabled: true,
+      StreamViewType: "NEW_AND_OLD_IMAGES",
+    },
+
     // ── Primary key ────────────────────────────────────────────────────────
     KeySchema: [
       { AttributeName: "pk", KeyType: "HASH" },
