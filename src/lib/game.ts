@@ -568,10 +568,12 @@ export async function resolveGame(gameId: string): Promise<void> {
   // ---------------------------------------------------------------------------
   let p2NewAchievements: string[] = []
   let p2ShieldUsed = false
+  let p2Seq = 0
   if (game.player2Id && p2Profile) {
     const p2Won = winnerId === game.player2Id
     const p2Drew = winnerId === null
     const p2NewGamesPlayed = p2Profile.gamesPlayed + 1
+    p2Seq = p2NewGamesPlayed
     const p2NewGamesWon = p2Profile.gamesWon + (p2Won ? 1 : 0)
 
     // Win: streak +1, Draw: streak unchanged, Loss: reset (unless shielded)
@@ -692,13 +694,15 @@ export async function resolveGame(gameId: string): Promise<void> {
       TableName: TABLE_NAME,
       Key: { pk: `GAME#${gameId}`, sk: "META" },
       UpdateExpression:
-        "SET currentRound = :rounds, p1EloBefore = :p1b, p1EloAfter = :p1a, p2EloBefore = :p2b, p2EloAfter = :p2a REMOVE gsi1pk, gsi1sk",
+        "SET currentRound = :rounds, p1EloBefore = :p1b, p1EloAfter = :p1a, p2EloBefore = :p2b, p2EloAfter = :p2a, p1Seq = :p1seq, p2Seq = :p2seq REMOVE gsi1pk, gsi1sk",
       ExpressionAttributeValues: {
         ":rounds": ROUNDS_PER_GAME,
         ":p1b": p1EloBefore,
         ":p1a": p1EloAfter,
         ":p2b": p2EloBefore,
         ":p2a": p2EloAfter,
+        ":p1seq": p1NewGamesPlayed,
+        ":p2seq": p2Seq,
       },
     })
   )

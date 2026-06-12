@@ -53,4 +53,8 @@ test("resolveGame stamps Elo audit fields on META and keeps the record", async (
   assert.ok((meta.p1EloAfter as number) > (meta.p1EloBefore as number), "winner gains Elo")
   assert.equal(meta.gsi1pk, undefined, "GSI attrs removed so completed game leaves active index")
   assert.equal(meta.gsi1sk, undefined, "GSI attrs removed so completed game leaves active index")
+  assert.equal(typeof meta.p1Seq, "number", "p1Seq (new gamesPlayed) stamped for ordering guard")
+  assert.ok((meta.p1Seq as number) >= 1, "p1Seq is the player's new gamesPlayed count")
+  assert.equal(typeof meta.p2Seq, "number", "p2Seq stamped for ordering guard")
+  assert.ok((meta.p2Seq as number) >= 1, "p2Seq is the player's new gamesPlayed count")
 })
