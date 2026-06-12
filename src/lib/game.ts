@@ -682,28 +682,26 @@ export async function resolveGame(gameId: string): Promise<void> {
   }
 
   // ---------------------------------------------------------------------------
-  // Remove active-game GSI markers
+  // Finalize META in ONE atomic update: strip the active-game GSI attrs and
+  // stamp the Elo audit fields. Running this AFTER updateUser means the
+  // resulting stream event is the signal that profiles are already current —
+  // the leaderboard Lambda keys off p1EloAfter's presence.
   // ---------------------------------------------------------------------------
-  await deleteItem(`GAME#${gameId}`, "META").catch(() => {/* ignore if already gone */})
-  // Re-write META without gsi1pk/gsi1sk
-  await putItem({
-    pk: `GAME#${gameId}`,
-    sk: "META",
-    gameId,
-    player1Id: game.player1Id,
-    player2Id: game.player2Id,
-    bugIds: game.bugIds,
-    bugId: game.bugId,
-    currentRound: ROUNDS_PER_GAME,
-    roundStartedAt: game.roundStartedAt,
-    status: "completed",
-    winnerId,
-    createdAt: game.createdAt,
-    expiresAt: game.expiresAt,
-    isPrivate: game.isPrivate,
-    affectsElo: game.affectsElo,
-    // No gsi1pk / gsi1sk — completed game should not appear in active queries
-  })
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { pk: `GAME#${gameId}`, sk: "META" },
+      UpdateExpression:
+        "SET currentRound = :rounds, p1EloBefore = :p1b, p1EloAfter = :p1a, p2EloBefore = :p2b, p2EloAfter = :p2a REMOVE gsi1pk, gsi1sk",
+      ExpressionAttributeValues: {
+        ":rounds": ROUNDS_PER_GAME,
+        ":p1b": p1EloBefore,
+        ":p1a": p1EloAfter,
+        ":p2b": p2EloBefore,
+        ":p2a": p2EloAfter,
+      },
+    })
+  )
 
   // Remove player2 tracking item
   if (game.player2Id) {
