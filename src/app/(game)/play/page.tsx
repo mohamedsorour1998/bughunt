@@ -515,12 +515,18 @@ export default function PlayPage() {
 
   async function handleTimerExpire() {
     if (!gameId || !gameData) return
-    // Submit with the currently selected answer (or 0 as fallback if nothing selected)
-    const answer = selectedAnswer ?? 0
-    // Only auto-submit if this round hasn't been submitted yet
-    if (roundAnswers[gameData.currentRound] === undefined) {
-      await handleAnswer(answer)
+    if (roundAnswers[gameData.currentRound] !== undefined) return
+    if (selectedAnswer !== undefined) {
+      // Lock in whatever the player had highlighted when time ran out
+      await handleAnswer(selectedAnswer)
+      return
     }
+    // Nothing selected: don't fabricate a guess. The status route's timeout
+    // path records a null answer (incorrect, full duration) after its 5s
+    // grace — poke it once so SSE-only clients still advance the round.
+    setTimeout(() => {
+      fetch(`/api/game/status?gameId=${gameId}`).catch(() => {})
+    }, 6000)
   }
 
   // ---------------------------------------------------------------------------
