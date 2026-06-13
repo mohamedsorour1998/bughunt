@@ -6,6 +6,7 @@ import { getRankFromElo } from "@/lib/users"
 import { getLeaderboardPlayers } from "@/app/api/leaderboard/route"
 import { Bug, Zap, Trophy } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { BugTeaser } from "@/components/landing/BugTeaser"
 
 export default async function Home() {
   let topPlayers: Awaited<ReturnType<typeof getLeaderboardPlayers>> = []
@@ -70,6 +71,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Interactive teaser                                                  */}
+      {/* ------------------------------------------------------------------ */}
+      <BugTeaser />
 
       {/* ------------------------------------------------------------------ */}
       {/* Features */}
