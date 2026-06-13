@@ -75,13 +75,14 @@ curated catalog; the migration path is per-difficulty index items (the
 `byDifficulty` map is already the natural shard key), five smaller items with
 the same optimistic-versioning write path.
 
-**Limit 3 — SSE on serverless.** Each active game holds a function open
-polling DynamoDB every 2s. Data-wise this scales (see table); dollar-wise,
-held-open functions are the costliest part of the design. Upgrade path
-(planned, gated behind `REDIS_URL` once built): TCP pub/sub subscriber (push)
-with a 10s safety poll, turning per-game cost from 0.5 read/s to ~0. Final fallback is
-plain client polling of `/api/game/status` — which is how the game degrades
-gracefully when *both* Redis modes are unavailable.
+**Limit 3 — SSE on serverless.** Each active game holds a function open. When
+`REDIS_URL` is set, `src/lib/redis-sub.ts` subscribes over TCP pub/sub (push)
+with a 10s safety poll, cutting per-game DynamoDB reads from 0.5/s to ~0.1/s.
+Without `REDIS_URL` the route falls back to polling DynamoDB every 2s. Either
+way, held-open functions are the costliest part of the design dollar-wise
+(data-wise both modes scale, see table). Final fallback is plain client
+polling of `/api/game/status` — which is how the game degrades gracefully
+when *both* Redis modes are unavailable.
 
 **Limit 4 — multi-region writes.** Global Tables replicate `bughunt-main` to
 eu-west-1 and ap-southeast-1; `src/lib/dynamodb.ts` maps a handful of known

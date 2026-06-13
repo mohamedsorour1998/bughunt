@@ -169,7 +169,7 @@ REMATCH#<uid>  / <opponentId>          — rematch intent (60s TTL)
 1. Player calls `POST /api/game/matchmake` → enqueued in Upstash Redis sorted set by ELO bucket
 2. Next caller with compatible ELO → `findAndClaimMatch(userId, elo)` selects AND `zrem`s the candidate atomically (only "wins" the claim if `zrem` returns `> 0`, preventing two concurrent callers from both grabbing the same opponent) → `createGame` → returns `{status:"active", gameId}`. If the match attempt subsequently aborts (no bugs available, `createGame` conditional failure), the claimed opponent is re-enqueued.
 3. Waiting player polls matchmake every 3s → `getActiveGameForUser` finds the ACTIVE_PLAYER tracking item → returns active game
-4. Both clients open `GET /api/game/stream?gameId=...` SSE (falls back to DynamoDB poll if Redis pub/sub unavailable)
+4. Both clients open `GET /api/game/stream?gameId=...` SSE — pushed via TCP pub/sub (`src/lib/redis-sub.ts`, gated behind `REDIS_URL`) with a 10s safety poll, falling back to 2s DynamoDB polling if `REDIS_URL`/pub/sub is unavailable
 5. On game resolve → `publishGameEvent` → SSE pushes `game_resolved` → clients redirect to `/game/result/[gameId]`
 
 ## Conditional-Write Patterns (read this before writing any new mutation logic)
@@ -184,7 +184,7 @@ If you're adding new mutation logic against any shared counter, index, queue slo
 
 ## Gotchas
 
-- `@upstash/redis` HTTP client has no `subscribe` method — SSE stream falls back to DynamoDB polling every 2s
+- `@upstash/redis` HTTP client has no `subscribe` method — the game SSE stream (`/api/game/stream`) instead uses `src/lib/redis-sub.ts`'s `ioredis` TCP subscriber (`REDIS_URL`) for push with a 10s safety poll; the notifications SSE stream still uses `@upstash/redis`'s subscribe and falls back to DynamoDB polling every 2s when pub/sub is unavailable
 - `getActiveGameForUser` prefers ACTIVE_PLAYER items (user is opponent) over META items (stale waiting game)
 - Matchmake re-enqueues in Redis when returning an existing waiting game (prevents being invisible to opponents)
 - `safeAuth()` alone blocks TEST_MODE — new routes must add `?? getTestSession(req) ?? getTestSessionFromCookies()`
