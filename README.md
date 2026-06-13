@@ -47,6 +47,8 @@ and community bug submissions with AI-assisted quality filtering.
 
 ## Architecture
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for access patterns, capacity math, and known limits.
+
 ```
                      ┌─────────────────────────┐
                      │   Users (Browser / VS    │
