@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Bug } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -15,6 +16,12 @@ export function MatchmakingOverlay({
   onCancel,
   isLoading = false,
 }: MatchmakingOverlayProps) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/95 backdrop-blur-sm">
       <div className="flex flex-col items-center gap-6 px-6 text-center">
@@ -32,7 +39,11 @@ export function MatchmakingOverlay({
             Finding Opponent
             <AnimatedDots />
           </h2>
-          <p className="text-sm text-white/50">Usually &lt; 30 seconds</p>
+          <p className="text-sm text-white/50">
+            {elapsed >= 8
+              ? "No humans nearby — summoning a Nova bot…"
+              : "Usually < 30 seconds"}
+          </p>
         </div>
 
         {/* Elo badge */}
