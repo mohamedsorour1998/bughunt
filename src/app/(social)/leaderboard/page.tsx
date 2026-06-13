@@ -1,7 +1,7 @@
 import { auth } from "@/auth"
 import { LeaderboardTable } from "@/components/leaderboard/LeaderboardTable"
 import { LeaderboardTabs } from "@/components/leaderboard/LeaderboardTabs"
-import { getLeaderboardPlayers, getSeasonLeaderboardPlayers } from "@/app/api/leaderboard/route"
+import { getLeaderboardPlayers, getSeasonLeaderboardPlayers } from "@/lib/leaderboard"
 import { getCurrentSeason, getDaysRemaining } from "@/lib/seasons"
 
 export const revalidate = 60

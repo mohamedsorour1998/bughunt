@@ -2,7 +2,7 @@
 
 import { Tabs } from "@base-ui/react/tabs"
 import { LeaderboardTable } from "@/components/leaderboard/LeaderboardTable"
-import type { LeaderboardPlayer } from "@/app/api/leaderboard/route"
+import type { LeaderboardPlayer } from "@/lib/leaderboard"
 
 type LeaderboardTabsProps = {
   globalPlayers: LeaderboardPlayer[]

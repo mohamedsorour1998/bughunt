@@ -1,6 +1,7 @@
 import { test, after } from "node:test"
 import assert from "node:assert/strict"
-import { GET as getLeaderboard, getLeaderboardPlayers } from "../../src/app/api/leaderboard/route"
+import { GET as getLeaderboard } from "../../src/app/api/leaderboard/route"
+import { getLeaderboardPlayers } from "../../src/lib/leaderboard"
 
 after(() => { setImmediate(() => process.exit(0)) })
 
