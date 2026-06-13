@@ -123,6 +123,12 @@ export async function getBugIndex(opts?: { bypassCache?: boolean }): Promise<Bug
  */
 export async function putBugIndex(index: BugIndex, expectedVersion: number): Promise<boolean> {
   const newIndex: BugIndex = { ...index, version: expectedVersion + 1 }
+  // 400KB DynamoDB item-size ceiling — warn loudly at 50% so we migrate to
+  // per-difficulty shard items (docs/ARCHITECTURE.md, Limit 2) before it bites.
+  const approxBytes = JSON.stringify(newIndex).length
+  if (approxBytes > 200_000) {
+    console.warn(`[bugs] BUG#INDEX is ~${approxBytes}B — past 50% of the 400KB item limit; shard by difficulty soon`)
+  }
   try {
     await ddb.send(
       new PutCommand({
