@@ -14,6 +14,7 @@ import { getBug, type Bug } from "@/lib/bugs"
 import { publishGameEvent } from "@/lib/redis"
 import { putItemIfNotExists } from "@/lib/dynamodb"
 import { getRankFromElo } from "@/lib/users"
+import { novaPickAnswer } from "@/lib/bedrock"
 
 export const BOT_USERS = [
   { userId: "bot-nova-junior", displayName: "Nova Junior", elo: 1000 },
@@ -66,8 +67,15 @@ export function chooseBotAnswer(bug: Bug, botElo: number, gameId: string, roundI
   return wrong[Math.floor(seededRandom(`${gameId}:${roundIndex}:wrong`) * wrong.length)]
 }
 
-/** Decide the bot's answer — optionally asking Bedrock Nova (Task 9), falling back to the scripted model. */
+/** Decide the bot's answer — Nova when BOT_USE_BEDROCK=true (2.5s budget), scripted model otherwise/fallback. */
 export async function decideBotAnswer(bug: Bug, botElo: number, gameId: string, roundIndex: number): Promise<number> {
+  if (process.env.BOT_USE_BEDROCK === "true") {
+    const nova = await Promise.race([
+      novaPickAnswer(bug.buggyCode, bug.language, bug.options),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ])
+    if (nova !== null) return nova
+  }
   return chooseBotAnswer(bug, botElo, gameId, roundIndex)
 }
 

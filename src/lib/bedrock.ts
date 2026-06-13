@@ -93,3 +93,48 @@ Respond with ONLY valid JSON matching this schema:
     return null
   }
 }
+
+/**
+ * Ask Nova to play a round: pick which option describes the bug.
+ * Returns null on any failure — callers must fall back to the scripted model.
+ */
+export async function novaPickAnswer(
+  buggyCode: string,
+  language: string,
+  options: [string, string, string, string]
+): Promise<0 | 1 | 2 | 3 | null> {
+  const prompt = `You are playing a spot-the-bug quiz. Here is ${language} code with exactly ONE bug:
+
+${buggyCode}
+
+Which option describes the bug?
+0: ${options[0]}
+1: ${options[1]}
+2: ${options[2]}
+3: ${options[3]}
+
+Reply with ONLY the single digit 0, 1, 2, or 3.`
+
+  try {
+    const body = JSON.stringify({
+      messages: [{ role: "user", content: prompt }],
+      inferenceConfig: { maxNewTokens: 5, temperature: 0.4 },
+    })
+    const command = new InvokeModelCommand({
+      modelId: "amazon.nova-lite-v1:0",
+      contentType: "application/json",
+      accept: "application/json",
+      body,
+    })
+    const response = await client.send(command)
+    const parsed = JSON.parse(new TextDecoder().decode(response.body))
+    const text: string =
+      parsed?.output?.message?.content?.[0]?.text ?? parsed?.content?.[0]?.text ?? ""
+    const m = text.match(/[0-3]/)
+    if (!m) return null
+    return Number(m[0]) as 0 | 1 | 2 | 3
+  } catch (err) {
+    console.error("[bedrock] novaPickAnswer failed:", err)
+    return null
+  }
+}
