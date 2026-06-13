@@ -169,6 +169,7 @@ export function GameResult({
   // ---- Rematch state ----
   const [rematchState, setRematchState] = useState<"idle" | "waiting" | "declined">("idle")
   const [countdown, setCountdown] = useState(60)
+  const [shareCopied, setShareCopied] = useState(false)
 
   useEffect(() => {
     if (rematchState !== "waiting") return
@@ -470,6 +471,26 @@ export function GameResult({
             {rematchState === "declined" && "Opponent declined"}
           </Button>
         )}
+
+        <Button
+          size="lg"
+          variant="outline"
+          className="min-w-48"
+          onClick={async () => {
+            const url = `${window.location.origin}/share/result/${game.gameId}`
+            try {
+              if (navigator.share) {
+                await navigator.share({ title: "BugHunt result", url })
+              } else {
+                await navigator.clipboard.writeText(url)
+                setShareCopied(true)
+                setTimeout(() => setShareCopied(false), 1500)
+              }
+            } catch { /* user cancelled */ }
+          }}
+        >
+          {shareCopied ? "✓ Link copied" : "Share result"}
+        </Button>
       </div>
     </div>
   )
