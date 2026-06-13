@@ -3,6 +3,7 @@ import { getGame, submitRoundAnswer, advanceOrResolveRound, ROUND_DURATION_MS } 
 import { getBug } from "@/lib/bugs"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { publishGameEvent } from "@/lib/redis"
+import { maybePlayBotRound } from "@/lib/bot"
 
 export async function POST(request: NextRequest) {
   const session = (await safeAuth()) ?? getTestSession(request) ?? await getTestSessionFromCookies()
@@ -78,6 +79,11 @@ export async function POST(request: NextRequest) {
   }).catch(() => {/* Redis failure must not break game flow */})
 
   await advanceOrResolveRound(gameId)
+
+  // If the opponent is a bot whose think-delay has elapsed, let it take its
+  // turn in this same request (covers the SSE-only client that never polls status).
+  const updatedGame = await getGame(gameId)
+  if (updatedGame) await maybePlayBotRound(updatedGame).catch(() => {})
 
   return NextResponse.json({
     correct: result.correct,

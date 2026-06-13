@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { getGame } from "@/lib/game"
 import { redis } from "@/lib/redis"
+import { maybePlayBotRound } from "@/lib/bot"
 
 export const runtime = "nodejs"
 
@@ -87,6 +88,7 @@ export async function GET(req: NextRequest) {
           try {
             const g = await getGame(gameId)
             if (!g) return
+            maybePlayBotRound(g).catch(() => {/* next tick will retry */})
             if (g.currentRound !== lastSeenRound) {
               lastSeenRound = g.currentRound
               send({ type: "round_advanced", round: g.currentRound })

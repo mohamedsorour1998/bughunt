@@ -8,6 +8,7 @@ import {
 } from "@/lib/game"
 import { getBug } from "@/lib/bugs"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
+import { maybePlayBotRound } from "@/lib/bot"
 
 export async function GET(request: NextRequest) {
   const session = (await safeAuth()) ?? getTestSession(request) ?? await getTestSessionFromCookies()
@@ -59,6 +60,12 @@ export async function GET(request: NextRequest) {
         // Serve stale game state rather than 500 on transient failure
       }
     }
+  }
+
+  // Lazy bot driver — the human's own poll powers the bot's turn.
+  if (game.status === "active") {
+    const botActed = await maybePlayBotRound(game).catch(() => false)
+    if (botActed) game = (await getGame(gameId)) ?? game
   }
 
   // Get bug data

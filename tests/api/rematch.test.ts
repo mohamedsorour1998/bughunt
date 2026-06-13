@@ -28,6 +28,7 @@ function anonNextReq(url: string, method = "GET", body?: unknown): NextRequest {
 
 let testBugIds: string[]
 const PRIVATE_GAME_ID = `test-private-${Date.now()}`
+let createdPrivateGameId: string | null = null
 
 before(async () => {
   await seedTestUsers()
@@ -37,6 +38,7 @@ before(async () => {
 after(async () => {
   await cleanupTestUsers()
   await cleanupTestGame(PRIVATE_GAME_ID)
+  if (createdPrivateGameId) await cleanupTestGame(createdPrivateGameId)
 })
 
 // ---- rematch POST ----
@@ -108,6 +110,7 @@ test("POST /api/game/private creates a private game with joinUrl", async () => {
     const body = await res.json() as { gameId: string; joinUrl: string }
     assert.ok(body.gameId, "should return gameId")
     assert.ok(body.joinUrl.includes(body.gameId), "joinUrl should contain gameId")
+    createdPrivateGameId = body.gameId
   }
 })
 
