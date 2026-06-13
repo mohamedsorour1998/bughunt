@@ -120,6 +120,18 @@ function formatTotalTime(answers: RoundAnswer[]): string {
 
 const OPTION_LABELS = ["A", "B", "C", "D"] as const
 
+// Local copy of the rank thresholds (lib/users imports the DynamoDB client,
+// which must not enter the client bundle).
+function rankFromElo(elo: number): string {
+  if (elo >= 2000) return "Grandmaster"
+  if (elo >= 1800) return "Master"
+  if (elo >= 1600) return "Diamond"
+  if (elo >= 1400) return "Platinum"
+  if (elo >= 1200) return "Gold"
+  if (elo >= 1000) return "Silver"
+  return "Bronze"
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -147,6 +159,9 @@ export function GameResult({
   const eloSign = eloChange > 0 ? "+" : eloChange < 0 ? "" : "+"
   const eloDisplay = `${eloSign}${eloChange} Elo`
   const eloBefore = newElo - eloChange
+  const rankBefore = rankFromElo(eloBefore)
+  const rankAfter = rankFromElo(newElo)
+  const rankedUp = isWin && rankAfter !== rankBefore
 
   const myAggregate = aggregate(myRecord.answers)
   const opponentAggregate = opponentRecord ? aggregate(opponentRecord.answers) : null
@@ -210,13 +225,20 @@ export function GameResult({
       {/* ------------------------------------------------------------------ */}
       <div
         className={cn(
-          "flex items-center justify-between rounded-2xl border px-6 py-5",
+          "flex items-center justify-between rounded-2xl border px-6 py-5 animate-in fade-in zoom-in-95 duration-500",
           bannerConfig.bg
         )}
       >
-        <h1 className={cn("text-2xl font-bold sm:text-3xl", bannerConfig.text)}>
-          {bannerConfig.title}
-        </h1>
+        <div className="space-y-1">
+          <h1 className={cn("text-2xl font-bold sm:text-3xl", bannerConfig.text)}>
+            {bannerConfig.title}
+          </h1>
+          {rankedUp && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/50 bg-yellow-500/15 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-yellow-300 animate-in slide-in-from-bottom-2 fade-in duration-700">
+              ⬆ Rank up: {rankBefore} → {rankAfter}
+            </span>
+          )}
+        </div>
         <span
           className={cn(
             "animate-bounce text-xl font-bold sm:text-2xl",
