@@ -84,8 +84,9 @@ plain client polling of `/api/game/status` — which is how the game degrades
 gracefully when *both* Redis modes are unavailable.
 
 **Limit 4 — multi-region writes.** Global Tables replicate `bughunt-main` to
-eu-west-1 and ap-southeast-1; `src/lib/dynamodb.ts` routes reads by
-`VERCEL_REGION`. Writes are pinned to us-east-1 while Vercel functions run
+eu-west-1 and ap-southeast-1; `src/lib/dynamodb.ts` maps a handful of known
+European/Asian `VERCEL_REGION` values to those replicas for reads, falling
+back to us-east-1 elsewhere. Writes are pinned to us-east-1 while Vercel functions run
 single-region — flipping on multi-region functions makes writes local too.
 Caveat we accept: DynamoDB conditional writes are evaluated per-region, so
 cross-region active-active would need region-pinned games (players are matched

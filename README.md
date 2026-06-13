@@ -86,7 +86,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for access patterns, capacity m
 - **DynamoDB is the single source of truth** for everything (users, games, bugs, tournaments, orgs, etc.) using a single-table design — see schema below.
 - **Upstash Redis** backs the live matchmaking queue (sorted sets bucketed by Elo), rate limiting, and game-event pub/sub. The waiting player polls `/api/game/matchmake` every 3s; once matched, both clients open an SSE stream.
 - **Gotcha:** the `@upstash/redis` HTTP client has no `subscribe` method, so the SSE game/notification streams fall back to **DynamoDB polling every 2s** when Redis pub/sub isn't available — this is expected, not a bug.
-- **DynamoDB Global Tables are enabled**: `bughunt-main` replicates to eu-west-1 and ap-southeast-1 (`scripts/enable-global-tables.sh` for fresh deployments). `src/lib/dynamodb.ts` routes reads to the nearest replica via `VERCEL_REGION`; writes are pinned to us-east-1 while Vercel functions run single-region — see docs/ARCHITECTURE.md, Limit 4, for the honest multi-region write story.
+- **DynamoDB Global Tables are enabled**: `bughunt-main` replicates to eu-west-1 and ap-southeast-1 (`scripts/enable-global-tables.sh` for fresh deployments). `src/lib/dynamodb.ts` maps known European/Asian `VERCEL_REGION` values to the nearest replica for reads (falling back to us-east-1 elsewhere); writes are pinned to us-east-1 while Vercel functions run single-region — see docs/ARCHITECTURE.md, Limit 4, for the honest multi-region write story.
 
 ## DynamoDB Single-Table Schema
 
