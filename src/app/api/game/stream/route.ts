@@ -1,10 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { safeAuth, getTestSession, getTestSessionFromCookies } from "@/lib/test-auth"
 import { getGame } from "@/lib/game"
-import { redis } from "@/lib/redis"
 import { maybePlayBotRound } from "@/lib/bot"
+import { subscribeToChannel } from "@/lib/redis-sub"
 
 export const runtime = "nodejs"
+export const maxDuration = 300
 
 const POLL_INTERVAL_MS = 2000
 const HEARTBEAT_INTERVAL_MS = 15000
@@ -99,28 +100,40 @@ export async function GET(req: NextRequest) {
         startHeartbeat()
       }
 
-      // Try Redis pub/sub first; fall back to DynamoDB polling
-      const hasSubscribe = typeof (redis as Record<string, unknown>).subscribe === "function"
-      if (hasSubscribe) {
+      // Push first (TCP pub/sub), pull as fallback (DynamoDB polling).
+      subscribeToChannel(`game:${gameId}`, (message) => {
+        if (state.closed) return
         try {
-          state.subscriber = (redis as Record<string, (...a: unknown[]) => unknown>).subscribe<string>(`game:${gameId}`)
-          state.subscriber.on("message", (data: { message?: string }) => {
+          const parsed = JSON.parse(message) as { type?: string }
+          send(parsed)
+          if (parsed.type === "game_resolved") resolve()
+        } catch { /* ignore malformed */ }
+      })
+        .then((unsubscribe) => {
+          if (!unsubscribe) {
+            startPolling()
+            return
+          }
+          if (state.closed) {
+            unsubscribe()
+            return
+          }
+          state.subscriber = { unsubscribe }
+          startHeartbeat()
+          // Safety net: pub/sub is fire-and-forget — a slow poll catches any
+          // dropped game_resolved (and keeps bot turns moving) so clients
+          // can't hang forever.
+          state.pollTimer = setInterval(async () => {
             if (state.closed) return
             try {
-              const raw = typeof data.message === "string" ? data.message : JSON.stringify(data.message)
-              const parsed = JSON.parse(raw) as { type?: string }
-              send(parsed)
-              if (parsed.type === "game_resolved") resolve()
-            } catch { /* ignore */ }
-          })
-          startHeartbeat()
-        } catch {
-          // Redis subscribe unavailable — fall back to polling
-          startPolling()
-        }
-      } else {
-        startPolling()
-      }
+              const g = await getGame(gameId)
+              if (!g) return
+              maybePlayBotRound(g).catch(() => {})
+              if (g.status === "completed") resolve()
+            } catch { /* ignore transient errors */ }
+          }, 10_000)
+        })
+        .catch(() => startPolling())
     },
     cancel() {
       cleanup()
