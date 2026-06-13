@@ -1,5 +1,8 @@
 config:
-  target: "{{ $processEnvironment.TARGET_URL || 'http://localhost:3000' }}"
+  target: "http://localhost:3000"
+  environments:
+    production:
+      target: "{{ $processEnvironment.TARGET_URL }}"
   phases:
     - duration: 60
       arrivalRate: 10
