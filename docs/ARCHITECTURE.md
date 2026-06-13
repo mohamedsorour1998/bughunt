@@ -62,7 +62,8 @@ Assume 1M DAU × 5 games/day = 5M games/day ≈ **58 games/s average, ~290/s pea
 **Limit 1 — leaderboard partition write rate.** Every ranked resolve funnels
 up to 8 writes (2 players × 2 boards × delete+put) into the `LEADERBOARD#GLOBAL`
 partition. At ~1,000 WCU/partition/s (before adaptive split-for-heat), that
-caps at ≈125 resolves/s ≈ 0.4M DAU. Mitigation (designed, not yet needed):
+caps at ≈125 resolves/s — roughly 0.4M DAU at the 5× peak ratio above (1M DAU
+implies ~290 peak resolves/s). Mitigation (designed, not yet needed):
 the Lambda caches the top-100 cutoff Elo and **skips writes for players below
 cutoff − 50** — at million scale >99% of games involve no top-100 candidate,
 cutting partition traffic by two orders of magnitude. Fallback: shard boards
@@ -77,8 +78,8 @@ the same optimistic-versioning write path.
 **Limit 3 — SSE on serverless.** Each active game holds a function open
 polling DynamoDB every 2s. Data-wise this scales (see table); dollar-wise,
 held-open functions are the costliest part of the design. Upgrade path
-(implemented behind `REDIS_URL`): TCP pub/sub subscriber (push) with a 10s
-safety poll, turning per-game cost from 0.5 read/s to ~0. Final fallback is
+(planned, gated behind `REDIS_URL` once built): TCP pub/sub subscriber (push)
+with a 10s safety poll, turning per-game cost from 0.5 read/s to ~0. Final fallback is
 plain client polling of `/api/game/status` — which is how the game degrades
 gracefully when *both* Redis modes are unavailable.
 
