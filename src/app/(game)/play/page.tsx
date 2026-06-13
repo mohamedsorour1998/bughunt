@@ -9,6 +9,8 @@ import { CodeViewer } from "@/components/game/CodeViewer"
 import { AnswerOptions } from "@/components/game/AnswerOptions"
 import { GameTimer } from "@/components/game/GameTimer"
 import { MatchmakingOverlay } from "@/components/game/MatchmakingOverlay"
+import { DuelHeader, type DuelPlayerInfo, type RoundOutcome } from "@/components/game/DuelHeader"
+import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,6 +126,8 @@ export default function PlayPage() {
 
   // User's Elo from session (may be undefined)
   const [userElo, setUserElo] = useState<number>(1200)
+  const [myProfile, setMyProfile] = useState<DuelPlayerInfo | null>(null)
+  const [opponentProfile, setOpponentProfile] = useState<DuelPlayerInfo | null>(null)
 
   // Fetch user profile to get elo
   useEffect(() => {
@@ -134,12 +138,42 @@ export default function PlayPage() {
           if (typeof data?.elo === "number") {
             setUserElo(data.elo)
           }
+          if (data?.displayName) {
+            setMyProfile({
+              displayName: data.displayName as string,
+              elo: (data.elo as number) ?? 1200,
+              avatar: (data.avatar as string | null) ?? null,
+            })
+          }
         })
         .catch(() => {
           // silently ignore — default elo will be used
         })
     }
   }, [session?.user?.id])
+
+  // Fetch the opponent's public profile for the duel header
+  const player1Id = gameData?.player1Id ?? null
+  const player2Id = gameData?.player2Id ?? null
+  useEffect(() => {
+    const myId = session?.user?.id
+    if (!myId || !player1Id) return
+    const oppId = player1Id === myId ? player2Id : player1Id
+    if (!oppId) return
+    let cancelled = false
+    fetch(`/api/user/profile/${oppId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (cancelled || !p) return
+        setOpponentProfile({
+          displayName: (p.displayName as string) ?? "Opponent",
+          elo: (p.elo as number) ?? 1200,
+          avatar: (p.avatar as string | null) ?? null,
+        })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [session?.user?.id, player1Id, player2Id])
 
   // Polling ref — cleared on unmount and state changes
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -550,36 +584,49 @@ export default function PlayPage() {
       playerRecord?.answers?.[currentRound]?.submittedAt != null
     const isSubmitting = playState === "submitting"
     const answersDisabled = hasSubmitted || isSubmitting
-    const opponentSubmitted = opponentSubmittedRounds.has(currentRound)
     const roundStartedAt = gameData.roundStartedAt[currentRound] ?? gameData.createdAt
+
+    const myId = session?.user?.id
+    const oppId = gameData.player1Id === myId ? gameData.player2Id : gameData.player1Id
+    const opponentIsBot = !!oppId && oppId.startsWith("bot-")
+
+    const myRoundOutcomes: RoundOutcome[] = Array.from({ length: ROUNDS_PER_GAME }, (_, i) => {
+      const local = roundAnswers[i]
+      const record = playerRecord?.answers?.[i]
+      const submitted = local !== undefined || record?.submittedAt != null
+      if (submitted) return (local?.correct ?? record?.correct) ? "correct" : "wrong"
+      return i === currentRound ? "current" : "pending"
+    })
+
+    const lastVerdict = roundAnswers[currentRound]
 
     return (
       <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl space-y-6">
-          {/* Header row */}
+          {/* Duel header: players, round pips, opponent status */}
+          <DuelHeader
+            me={myProfile}
+            opponent={opponentProfile}
+            opponentIsBot={opponentIsBot}
+            currentRound={currentRound}
+            roundsPerGame={ROUNDS_PER_GAME}
+            myRoundOutcomes={myRoundOutcomes}
+            opponentSubmittedRounds={opponentSubmittedRounds}
+          />
+
+          {/* Meta row: language, difficulty, timer */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Badge variant="secondary" className="font-mono text-xs uppercase">
-                Round {currentRound + 1} of {ROUNDS_PER_GAME}
-              </Badge>
               <Badge variant="secondary" className="font-mono text-xs uppercase">
                 {bugData.language}
               </Badge>
               <DifficultyStars difficulty={bugData.difficulty} />
             </div>
-
-            <div className="flex items-center gap-3">
-              {/* Opponent status */}
-              <span className="text-sm text-white/50">
-                {opponentSubmitted ? "Opponent submitted!" : "Opponent thinking..."}
-              </span>
-
-              <GameTimer
-                key={currentRound}
-                createdAt={roundStartedAt}
-                onExpire={handleTimerExpire}
-              />
-            </div>
+            <GameTimer
+              key={currentRound}
+              createdAt={roundStartedAt}
+              onExpire={handleTimerExpire}
+            />
           </div>
 
           {/* Error banner */}
@@ -629,11 +676,24 @@ export default function PlayPage() {
             />
           </div>
 
-          {/* Post-submit waiting message */}
+          {/* Post-submit verdict flash */}
           {hasSubmitted && !isSubmitting && (
-            <p className="text-center text-sm text-white/40">
-              Answer submitted — waiting for opponent...
-            </p>
+            lastVerdict ? (
+              <div
+                className={cn(
+                  "rounded-xl border px-4 py-3 text-center text-sm font-semibold animate-in fade-in slide-in-from-bottom-2 duration-300",
+                  lastVerdict.correct
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                    : "border-red-500/40 bg-red-500/10 text-red-300"
+                )}
+              >
+                {lastVerdict.correct ? "✓ Correct!" : "✗ Not quite."} Waiting for opponent...
+              </div>
+            ) : (
+              <p className="text-center text-sm text-white/40">
+                Answer submitted — waiting for opponent...
+              </p>
+            )
           )}
         </div>
       </main>
