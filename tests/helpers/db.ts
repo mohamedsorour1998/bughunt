@@ -141,6 +141,21 @@ export async function seedGamePlayerAnswers(
   }))
 }
 
+// Delete any leftover active game tracked for this user via GSI1 (ACTIVE_GAME#<userId>).
+// Prevents stale games from a previous failed run being matched again by matchmake.
+export async function cleanupActiveGamesForUser(userId: string): Promise<void> {
+  const res = await client.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    IndexName: "gsi1",
+    KeyConditionExpression: "gsi1pk = :pk",
+    ExpressionAttributeValues: { ":pk": `ACTIVE_GAME#${userId}` },
+  })).catch(() => ({ Items: [] }))
+  for (const item of res.Items ?? []) {
+    const gameId = (item.gsi1sk as string) ?? (item.gameId as string)
+    if (gameId) await cleanupTestGame(gameId)
+  }
+}
+
 export async function cleanupTestGame(gameId: string): Promise<void> {
   const res = await client.send(new QueryCommand({
     TableName: TABLE_NAME,

@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test"
-import { cleanupTestUsers, seedTestUsers } from "../helpers/db"
+import { cleanupTestUsers, seedTestUsers, cleanupActiveGamesForUser, cleanupTestGame } from "../helpers/db"
 import { TEST_USER_1, TEST_USER_2 } from "../helpers/fixtures"
 import { getStorageStatePath } from "../helpers/auth"
 
@@ -28,6 +28,10 @@ test.describe("Two-player full game flow", () => {
 
   test.beforeAll(async ({ browser }) => {
     await seedTestUsers()
+    // Clear any stale active game left over from a previous failed run, so
+    // matchmake creates a fresh game starting at round 1.
+    await cleanupActiveGamesForUser(TEST_USER_1.userId)
+    await cleanupActiveGamesForUser(TEST_USER_2.userId)
 
     // Player 1 context with user1 auth state
     ctx1 = await browser.newContext({ storageState: getStorageStatePath("user1") })
@@ -41,6 +45,7 @@ test.describe("Two-player full game flow", () => {
   })
 
   test.afterAll(async () => {
+    if (createdGameId) await cleanupTestGame(createdGameId)
     await cleanupTestUsers()
     await ctx1.close()
     await ctx2.close()
@@ -72,7 +77,7 @@ test.describe("Two-player full game flow", () => {
     // Timer like "2:00" or "1:58"
     await expect(page1.getByText(/\d+:\d{2}/).first()).toBeVisible()
     // Round badge
-    await expect(page1.getByText(/Round 1 of 3/i).first()).toBeVisible({ timeout: 8000 })
+    await expect(page1.getByText(/Round 1\/3/i).first()).toBeVisible({ timeout: 8000 })
     // 4 answer buttons
     const answerBtns = page1.locator("button").filter({
       has: page1.locator("span").filter({ hasText: /^[A-D]$/ }),
@@ -85,8 +90,8 @@ test.describe("Two-player full game flow", () => {
       page.locator("button").filter({ has: page.locator("span").filter({ hasText: /^[A-D]$/ }) })
 
     for (let round = 1; round <= 3; round++) {
-      await expect(page1.getByText(new RegExp(`Round ${round} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
-      await expect(page2.getByText(new RegExp(`Round ${round} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
+      await expect(page1.getByText(new RegExp(`Round ${round}/3`, "i")).first()).toBeVisible({ timeout: 30000 })
+      await expect(page2.getByText(new RegExp(`Round ${round}/3`, "i")).first()).toBeVisible({ timeout: 30000 })
 
       const p1Btns = answerBtnsFor(page1)
       const p2Btns = answerBtnsFor(page2)
@@ -100,8 +105,8 @@ test.describe("Two-player full game flow", () => {
 
       if (round < 3) {
         // Next round's code block + re-enabled buttons appear once both have submitted
-        await expect(page1.getByText(new RegExp(`Round ${round + 1} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
-        await expect(page2.getByText(new RegExp(`Round ${round + 1} of 3`, "i")).first()).toBeVisible({ timeout: 30000 })
+        await expect(page1.getByText(new RegExp(`Round ${round + 1}/3`, "i")).first()).toBeVisible({ timeout: 30000 })
+        await expect(page2.getByText(new RegExp(`Round ${round + 1}/3`, "i")).first()).toBeVisible({ timeout: 30000 })
         await expect(answerBtnsFor(page1).first()).toBeEnabled({ timeout: 15000 })
         await expect(answerBtnsFor(page2).first()).toBeEnabled({ timeout: 15000 })
       }
