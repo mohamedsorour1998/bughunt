@@ -492,7 +492,6 @@ export async function resolveGame(gameId: string): Promise<void> {
     : p2EloBefore
 
   const now = Date.now()
-  const nowSec = Math.floor(now / 1000)
 
   // ---------------------------------------------------------------------------
   // Update game status

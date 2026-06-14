@@ -1,5 +1,4 @@
-import { getItem, putItem, deleteItem, TABLE_NAME, ddb } from "@/lib/dynamodb"
-import { QueryCommand } from "@aws-sdk/lib-dynamodb"
+import { getItem, putItem, deleteItem } from "@/lib/dynamodb"
 import { createHash, randomBytes } from "crypto"
 
 function hashToken(raw: string): string {

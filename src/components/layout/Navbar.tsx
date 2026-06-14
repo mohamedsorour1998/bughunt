@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
@@ -38,6 +39,22 @@ export function Navbar() {
   const [bellOpen, setBellOpen] = useState(false)
   const sseRef = useRef<EventSource | null>(null)
 
+  async function fetchNotifications() {
+    try {
+      const res = await fetch("/api/notifications")
+      if (res.ok) {
+        const data = (await res.json()) as {
+          notifications: NotifItem[]
+          unreadCount: number
+        }
+        setNotifications(data.notifications)
+        setUnreadCount(data.unreadCount)
+      }
+    } catch {
+      // ignore network errors
+    }
+  }
+
   useEffect(() => {
     if (!session?.user?.id) return
 
@@ -57,24 +74,7 @@ export function Navbar() {
       sse.close()
       clearInterval(poll)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id])
-
-  async function fetchNotifications() {
-    try {
-      const res = await fetch("/api/notifications")
-      if (res.ok) {
-        const data = (await res.json()) as {
-          notifications: NotifItem[]
-          unreadCount: number
-        }
-        setNotifications(data.notifications)
-        setUnreadCount(data.unreadCount)
-      }
-    } catch {
-      // ignore network errors
-    }
-  }
 
   async function markRead(sk: string) {
     await fetch("/api/notifications", {
@@ -137,9 +137,11 @@ export function Navbar() {
           ) : session ? (
             <div className="flex items-center gap-3">
               {user?.image && (
-                <img
+                <Image
                   src={user.image}
                   alt={displayName}
+                  width={32}
+                  height={32}
                   className="size-8 rounded-full border border-white/20"
                 />
               )}
@@ -278,9 +280,11 @@ export function Navbar() {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-3 px-4 py-2">
                     {user?.image && (
-                      <img
+                      <Image
                         src={user.image}
                         alt={displayName}
+                        width={32}
+                        height={32}
                         className="size-8 rounded-full border border-white/20"
                       />
                     )}

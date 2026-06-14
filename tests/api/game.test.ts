@@ -6,7 +6,6 @@ import { TEST_USER_1, TEST_USER_2 } from "../helpers/fixtures"
 import { POST as matchmake } from "../../src/app/api/game/matchmake/route"
 import { GET as getStatus } from "../../src/app/api/game/status/route"
 import { POST as submit } from "../../src/app/api/game/submit/route"
-import { GET as getGame } from "../../src/app/api/game/[gameId]/route"
 import { POST as cancel } from "../../src/app/api/game/cancel/route"
 
 if (process.env.TEST_MODE !== "true") throw new Error("TEST_MODE=true required")

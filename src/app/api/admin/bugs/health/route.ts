@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getBugIndex, getBug } from "@/lib/bugs"
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await import("@/lib/test-auth").then(m => m.safeAuth())
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const adminEmails = (process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim()).filter(Boolean)

@@ -7,16 +7,14 @@ if (process.env.TEST_MODE !== "true") throw new Error("TEST_MODE=true required")
 
 test("GET /api/admin/check returns isAdmin:false for unauthenticated user", async () => {
   // With auth mock returning null, should return false
-  const req = new Request("http://localhost/api/admin/check")
-  const res = await checkAdmin(req as never)
+  const res = await checkAdmin()
   assert.equal(res.status, 200)
   const body = await res.json() as { isAdmin: boolean }
   assert.equal(body.isAdmin, false)
 })
 
 test("GET /api/admin/bugs returns 401/403 for unauthenticated user", async () => {
-  const req = new Request("http://localhost/api/admin/bugs")
-  const res = await getPendingBugs(req as never)
+  const res = await getPendingBugs()
   assert.ok([401, 403].includes(res.status), `expected 401 or 403, got ${res.status}`)
 })
 

@@ -61,7 +61,6 @@ export async function GET(request: NextRequest) {
   }
 
   // Strip correctAnswer so the client cannot peek at the answer before guessing
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { correctAnswer: _hidden, ...safeBug } = bug
 
   return NextResponse.json(safeBug)

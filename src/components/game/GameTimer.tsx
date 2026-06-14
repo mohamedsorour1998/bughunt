@@ -25,7 +25,10 @@ export function GameTimer({
   )
   const expiredRef = useRef(false)
   const onExpireRef = useRef(onExpire)
-  onExpireRef.current = onExpire
+
+  useEffect(() => {
+    onExpireRef.current = onExpire
+  }, [onExpire])
 
   useEffect(() => {
     if (remaining === 0 && !expiredRef.current) {
@@ -37,14 +40,12 @@ export function GameTimer({
     if (remaining <= 0) return
 
     const id = setInterval(() => {
-      setRemaining((prev) => {
-        const next = Math.max(0, duration - Math.floor((Date.now() - createdAt) / 1000))
-        if (next === 0 && !expiredRef.current) {
-          expiredRef.current = true
-          onExpireRef.current?.()
-        }
-        return next
-      })
+      const next = Math.max(0, duration - Math.floor((Date.now() - createdAt) / 1000))
+      if (next === 0 && !expiredRef.current) {
+        expiredRef.current = true
+        onExpireRef.current?.()
+      }
+      setRemaining(next)
     }, 1000)
 
     return () => clearInterval(id)

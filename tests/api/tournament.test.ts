@@ -2,20 +2,11 @@ import { test, before, after } from "node:test"
 import assert from "node:assert/strict"
 import { NextRequest } from "next/server"
 import { seedTestUsers, cleanupTestUsers } from "../helpers/db"
-import { TEST_USER_1 } from "../helpers/fixtures"
 import { GET as getTournaments } from "../../src/app/api/tournaments/route"
 import { GET as getTournament } from "../../src/app/api/tournaments/[id]/route"
 import { POST as registerForTournament } from "../../src/app/api/tournaments/[id]/register/route"
 
 if (process.env.TEST_MODE !== "true") throw new Error("TEST_MODE=true required")
-
-function authNextReq(url: string, userId: string, method = "GET", body?: unknown): NextRequest {
-  return new NextRequest(url, {
-    method,
-    headers: { "Content-Type": "application/json", "x-test-user-id": userId },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-}
 
 function anonNextReq(url: string, method = "GET"): NextRequest {
   return new NextRequest(url, { method, headers: { "Content-Type": "application/json" } })
