@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
   const userId = session.user.id
   const { searchParams } = req.nextUrl
-  const gameId = searchParams.get("gameId")
+  const gameId = searchParams.get("gameId") ?? ""
 
   if (!gameId) {
     return NextResponse.json({ error: "Missing gameId" }, { status: 400 })
