@@ -91,7 +91,7 @@ export function MatchmakingOverlay({
 
 function AnimatedDots() {
   return (
-    <span className="inline-flex gap-0.5" aria-hidden="true">
+    <span className="ml-1 inline-flex gap-0.5" aria-hidden="true">
       {[0, 1, 2].map((i) => (
         <span
           key={i}
