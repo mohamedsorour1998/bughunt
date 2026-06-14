@@ -1,10 +1,11 @@
 // src/app/api/cron/tournament-tick/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { getAllActiveTournaments, advanceTournament, generateBracket } from "@/lib/tournaments"
+import { verifyCronRequest } from "@/lib/cron-auth"
 
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get("authorization")?.replace("Bearer ", "")
-  if (secret !== process.env.CRON_SECRET) {
+  const body = await req.text()
+  if (!(await verifyCronRequest(req, body))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

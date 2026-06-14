@@ -6,7 +6,6 @@ flowchart TB
   subgraph Vercel["Vercel — global edge"]
     CDN["Edge CDN + static assets"]
     F["Next.js 16 App Router\nserverless functions: SSR · API · SSE"]
-    CRON["Vercel Cron\ntournament-tick */5"]
   end
   subgraph AWS["AWS us-east-1 (replicas: eu-west-1 · ap-southeast-1)"]
     DDB[("DynamoDB bughunt-main\nsingle-table · on-demand · TTL\nGSI1 active-games · GSI2 email\nGlobal Tables")]
@@ -14,10 +13,11 @@ flowchart TB
     L["Lambda leaderboard-updater\nmaterializes RANK# rows"]
     NOVA["Bedrock Nova Lite\nbug QA · bug generation · bot answers"]
   end
-  subgraph Upstash["Upstash Redis (TLS)"]
+  subgraph Upstash["Upstash Redis (TLS) + QStash"]
     Q[("Matchmaking queue\nElo-bucketed zsets")]
     RL[("Rate limits")]
     PS[("Game-event pub/sub")]
+    CRON[("QStash schedules\ndaily-challenge · tournament-tick")]
   end
   B --> CDN
   V --> CDN

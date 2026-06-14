@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/tournament-tick",
-      "schedule": "*/5 * * * *"
-    }
-  ]
-}

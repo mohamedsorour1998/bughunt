@@ -1,10 +1,7 @@
 /**
  * POST /api/cron/daily-challenge
- * Protected by CRON_SECRET header (set in Vercel project env vars).
- * Vercel Cron Job invokes this at 00:00 UTC daily.
- *
- * Vercel cron.json entry:
- *   { "path": "/api/cron/daily-challenge", "schedule": "0 0 * * *" }
+ * Invoked daily (00:00 UTC) by a QStash schedule (or manually via
+ * `Authorization: Bearer <CRON_SECRET>` — see src/lib/cron-auth.ts).
  *
  * Algorithm:
  *   1. Query DynamoDB for bugs used as daily in the last 30 days
@@ -16,10 +13,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getBugIndex, getBug } from "@/lib/bugs"
 import { setDailyMeta, getDailyMeta, todayUTC } from "@/lib/daily"
 import { setDailyChallengeBugId } from "@/lib/redis"
+import { verifyCronRequest } from "@/lib/cron-auth"
 
 export async function POST(request: NextRequest) {
-  const secret = request.headers.get("x-cron-secret")
-  if (!secret || secret !== process.env.CRON_SECRET) {
+  const body = await request.text()
+  if (!(await verifyCronRequest(request, body))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

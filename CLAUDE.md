@@ -28,8 +28,10 @@ DYNAMODB_TABLE_NAME                   # default: bughunt-main
 REDIS_URL                             # rediss://... (Upstash TLS URL)
 UPSTASH_REDIS_REST_URL                # https://...upstash.io
 UPSTASH_REDIS_REST_TOKEN
-CRON_SECRET                           # Bearer token for cron route auth
+CRON_SECRET                           # Bearer token for manually triggering /api/cron/* routes
 BEDROCK_REGION                        # default: us-east-1
+QSTASH_CURRENT_SIGNING_KEY            # verifies QStash-scheduled cron requests
+QSTASH_NEXT_SIGNING_KEY
 ```
 
 ## Key Directories
@@ -85,8 +87,8 @@ tests/
 /api/daily                  GET   — today's daily challenge
 /api/daily/[date]           GET   — historical daily challenge
 /api/daily/submit           POST  — submit daily answer
-/api/cron/daily-challenge   POST  — seed today's daily (CRON_SECRET required)
-/api/cron/tournament-tick   POST  — advance tournament rounds
+/api/cron/daily-challenge   POST  — seed today's daily (QStash-scheduled, daily 00:00 UTC)
+/api/cron/tournament-tick   POST  — advance tournament rounds (QStash-scheduled, every 5 min)
 
 /api/social/follow          POST  — follow/unfollow a user
 /api/social/following       GET   — users I follow
@@ -195,3 +197,4 @@ If you're adding new mutation logic against any shared counter, index, queue slo
 - `itemToBug` preserves `ratingCount`/`ratingSum` as `(item.X as number) ?? undefined` — keep "never rated" as `undefined`, not `0`, or you'll silently break the admin health view's misrating detection.
 - Admin auth guards must `.filter(Boolean)` on `adminEmails` AND explicitly reject `!email` — otherwise an unset `ADMIN_EMAILS` plus a user with no email can both normalize to `""`, and `[""].includes("")` grants admin access.
 - `/api/bugs/submit` runs the 3-per-day rate-limit check AFTER request validation (not before), so malformed requests don't burn a user's daily quota; the Bedrock quality-score parse validates `typeof parsed.score === "number"` before comparing (`NaN < 0.7` is `false`, so an unvalidated stringified score would silently pass low-quality submissions).
+- `/api/cron/*` routes are NOT scheduled by Vercel (Hobby plan only allows daily crons, and `tournament-tick` needs to run every 5 min) — they're triggered by Upstash QStash schedules and authorized via `src/lib/cron-auth.ts`'s `verifyCronRequest` (accepts a QStash `Upstash-Signature` OR a manual `Authorization: Bearer <CRON_SECRET>`). There is no `vercel.json`.
