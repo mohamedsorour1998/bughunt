@@ -2,7 +2,7 @@
 
 > Race to find bugs in code faster than your opponent. Climb the Elo ladder. Become the Grandmaster.
 
-[Live Demo](https://bughunt.vercel.app) · [Demo Video](#) · [Architecture](#architecture)
+[Live Demo](https://bughunt-beryl.vercel.app) · [Demo Video](#) · [Architecture](#architecture)
 
 ## What is BugHunt?
 
