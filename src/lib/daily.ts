@@ -237,24 +237,14 @@ export async function submitDailyAnswer(
     rank = items.length + 1
   }
 
-  // Atomically increment totalPlayers and update avgTimeMs
+  // Atomically increment totalPlayers
   await ddb.send(
     new UpdateCommand({
       TableName: TABLE_NAME,
       Key: { pk: `DAILY#${date}`, sk: "META" },
-      UpdateExpression:
-        "SET #tp = if_not_exists(#tp, :zero) + :one, " +
-        "#avg = (if_not_exists(#avg, :zero) * if_not_exists(#tp, :zero) + :time) " +
-        "/ (if_not_exists(#tp, :zero) + :one)",
-      ExpressionAttributeNames: {
-        "#tp": "totalPlayers",
-        "#avg": "avgTimeMs",
-      },
-      ExpressionAttributeValues: {
-        ":zero": 0,
-        ":one": 1,
-        ":time": timeElapsedMs,
-      },
+      UpdateExpression: "SET #tp = if_not_exists(#tp, :zero) + :one",
+      ExpressionAttributeNames: { "#tp": "totalPlayers" },
+      ExpressionAttributeValues: { ":zero": 0, ":one": 1 },
     })
   )
 

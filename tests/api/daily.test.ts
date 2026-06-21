@@ -46,7 +46,10 @@ test("GET /api/daily returns 200 or 404 for authed user", async () => {
     assert.ok(body.date, "should have date field")
     assert.ok(body.bug, "should have bug field")
     const bug = body.bug as Record<string, unknown>
-    assert.equal(bug.correctAnswer, undefined, "correctAnswer must not be exposed before submission")
+    // correctAnswer is hidden before submission, revealed after — only assert when not yet submitted
+    if (!body.submission) {
+      assert.equal(bug.correctAnswer, undefined, "correctAnswer must not be exposed before submission")
+    }
   }
 })
 
