@@ -10,6 +10,18 @@ import {
 import { pickBotForElo, ensureBotProfile } from "@/lib/bot"
 
 export async function POST(req: Request) {
+  try {
+    return await handleMatchmake(req)
+  } catch (err) {
+    console.error("[matchmake] unhandled error:", err)
+    return NextResponse.json(
+      { error: "Internal server error", detail: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    )
+  }
+}
+
+async function handleMatchmake(req: Request) {
   const session = (await safeAuth()) ?? getTestSession(req) ?? await getTestSessionFromCookies()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -17,8 +29,13 @@ export async function POST(req: Request) {
 
   const userId = session.user.id
 
-  // Rate limit: 10 matchmake calls per minute
-  const allowed = await rateLimitCheck(userId, "matchmake", 10, 60)
+  // Rate limit: 10 matchmake calls per minute (skip gracefully if Redis is unavailable)
+  let allowed = true
+  try {
+    allowed = await rateLimitCheck(userId, "matchmake", 10, 60)
+  } catch (err) {
+    console.error("[matchmake] rateLimitCheck failed:", err)
+  }
   if (!allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
@@ -42,7 +59,12 @@ export async function POST(req: Request) {
   const elo = userProfile.elo
   // Atomically claims the opponent (zrem) at selection time so two concurrent
   // matchmake calls can't both pick the same queued player.
-  const opponentId = await findAndClaimMatch(userId, elo)
+  let opponentId: string | null = null
+  try {
+    opponentId = await findAndClaimMatch(userId, elo)
+  } catch (err) {
+    console.error("[matchmake] findAndClaimMatch failed:", err)
+  }
 
   if (opponentId) {
     const opponentProfile = await getUser(opponentId)
@@ -98,12 +120,17 @@ export async function POST(req: Request) {
   }
 
   // No human opponent — stay queued, and track how long we've been waiting.
-  await enqueuePlayer(userId, elo)
-  await markQueueJoined(userId)
+  let joinedAt: number | null = null
+  try {
+    await enqueuePlayer(userId, elo)
+    await markQueueJoined(userId)
+    joinedAt = await getQueueJoinedAt(userId)
+  } catch (err) {
+    console.error("[matchmake] Redis queue operations failed:", err)
+  }
 
   // Bot fallback: if we've waited long enough, summon a Nova bot near our Elo.
   const botAfterMs = Number(process.env.BOT_MATCH_AFTER_MS ?? 10_000)
-  const joinedAt = await getQueueJoinedAt(userId)
   const waitedMs = joinedAt != null ? Date.now() - joinedAt : 0
 
   if (waitedMs >= botAfterMs) {
@@ -116,8 +143,8 @@ export async function POST(req: Request) {
     )
     if (bugsForGame) {
       const bugIds = bugsForGame.map((b) => b.bugId)
-      await dequeuePlayer(userId, elo)
-      await clearQueueJoined(userId)
+      try { await dequeuePlayer(userId, elo) } catch { /* Redis best-effort */ }
+      try { await clearQueueJoined(userId) } catch { /* Redis best-effort */ }
       const game = await createGame(userId, bot.userId, bugIds)
       await updateUser(userId, { bugsSeen: [...new Set([...userProfile.bugsSeen, ...bugIds])] })
       return NextResponse.json({ gameId: game.gameId, status: "active", opponentIsBot: true })
