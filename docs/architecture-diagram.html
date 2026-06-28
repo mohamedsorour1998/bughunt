@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BugHunt — Architecture &amp; Million-Scale Capacity</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #0d1117;
+    --surface2: #111827;
+    --surface3: #1a1a2e;
+    --border: #1e293b;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-muted: #64748b;
+    --text-faint: #475569;
+    --text-bright: #f1f5f9;
+    --text-white: #f8fafc;
+    --blue: #3b82f6;
+    --blue-light: #60a5fa;
+    --yellow: #f59e0b;
+    --yellow-light: #fbbf24;
+    --red: #ef4444;
+    --red-light: #f87171;
+    --purple: #8b5cf6;
+    --purple-light: #a78bfa;
+    --green: #10b981;
+    --green-light: #34d399;
+  }
+
+  body {
+    background: var(--bg);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--text);
+    padding: 48px 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* Print styles */
+  @media print {
+    body { background: #fff; color: #1a1a1a; padding: 20px; font-size: 10pt; }
+    .diagram-section { page-break-after: always; }
+    .section { page-break-inside: avoid; }
+    h1, h2, h3 { color: #000; }
+    .badge { background: #f0f0f0 !important; color: #333 !important; border-color: #ccc !important; }
+    table { border-color: #ccc; }
+    th { background: #f5f5f5 !important; color: #000 !important; }
+    td { color: #333 !important; border-color: #ddd !important; }
+    .limit-box { background: #f9f9f9 !important; border-color: #ddd !important; }
+    .limit-title { color: #b45309 !important; }
+    .failure-box { background: #f0fdf4 !important; border-color: #86efac !important; }
+    svg .box-vercel, svg .box-aws, svg .box-redis, svg .box-client { fill: #fafafa; }
+    svg .box-inner, svg rect[fill="#111827"] { fill: #f5f5f5; }
+    svg rect[fill="#1e293b"], svg rect[fill="#1a1a2e"] { fill: #f0f0f0; }
+    svg .node-title { fill: #111; }
+    svg .node-sub, svg text[style*="fill:#fbbf24"] { fill: #444 !important; }
+    svg text[style*="fill:#f87171"] { fill: #b91c1c !important; }
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--text-white);
+    margin-bottom: 8px;
+  }
+  .header .subtitle {
+    font-size: 16px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  .header .tagline {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin: 0 4px;
+  }
+  .badge-yellow { background: #f59e0b20; color: var(--yellow-light); border: 1px solid #f59e0b40; }
+  .badge-blue { background: #3b82f620; color: var(--blue-light); border: 1px solid #3b82f640; }
+  .badge-purple { background: #8b5cf620; color: var(--purple-light); border: 1px solid #8b5cf640; }
+
+  /* Sections */
+  .section {
+    margin-bottom: 48px;
+  }
+  h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-white);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+  p {
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    font-size: 14px;
+  }
+  strong { color: var(--text-bright); }
+  ul {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 16px;
+  }
+  ul li {
+    position: relative;
+    padding-left: 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  ul li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--text-faint);
+  }
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--surface2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--blue-light);
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface2);
+    color: var(--text-bright);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 10px 14px;
+    color: var(--text-dim);
+    border-bottom: 1px solid #1e293b40;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { color: var(--text-bright); font-weight: 500; }
+
+  /* Limit boxes */
+  .limit-box {
+    background: var(--surface3);
+    border: 1px solid #f59e0b25;
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .limit-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--yellow-light);
+    margin-bottom: 8px;
+  }
+  .limit-box p { margin-bottom: 0; }
+
+  /* Failure boxes */
+  .failure-box {
+    background: #10b98108;
+    border: 1px solid #10b98125;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 10px;
+  }
+  .failure-box strong { color: var(--green-light); }
+
+  /* Diagram SVG styles */
+  svg { width: 100%; height: auto; }
+  .box { rx: 12; ry: 12; stroke-width: 1.5; }
+  .box-vercel { fill: var(--surface); stroke: var(--blue); }
+  .box-aws { fill: var(--surface); stroke: var(--yellow); }
+  .box-redis { fill: var(--surface); stroke: var(--red); }
+  .box-client { fill: var(--surface); stroke: var(--purple); }
+  .box-inner { rx: 8; ry: 8; stroke-width: 1; fill: var(--surface2); }
+  .inner-vercel { stroke: #3b82f680; }
+  .inner-aws { stroke: #f59e0b80; }
+  .inner-redis { stroke: #ef444480; }
+  .inner-client { stroke: #8b5cf680; }
+  .section-label { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; font-family: 'Inter', sans-serif; }
+  .label-vercel { fill: var(--blue-light); }
+  .label-aws { fill: var(--yellow-light); }
+  .label-redis { fill: var(--red-light); }
+  .label-client { fill: var(--purple-light); }
+  .node-title { font-size: 13px; font-weight: 600; fill: var(--text-bright); font-family: 'Inter', sans-serif; }
+  .node-sub { font-size: 10.5px; fill: var(--text-dim); font-family: 'Inter', sans-serif; }
+  .icon-text { font-size: 18px; }
+  .arrow { stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+  .arrow-bi { stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); marker-start: url(#arrowhead-rev); }
+  .arrow-data { stroke: var(--text-faint); }
+  .arrow-stream { stroke: #f59e0b80; stroke-dasharray: 6 3; }
+  .arrow-cron { stroke: #ef444480; stroke-dasharray: 4 4; }
+  .arrow-ai { stroke: var(--green); }
+
+  .footer {
+    text-align: center;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================== -->
+<!-- HEADER                                                             -->
+<!-- ================================================================== -->
+<div class="header">
+  <h1>BugHunt &mdash; Architecture &amp; Million-Scale Capacity</h1>
+  <div class="subtitle">Competitive debugging game built for real-time multiplayer on serverless</div>
+  <div>
+    <span class="badge badge-yellow">Track 3: Million-Scale</span>
+    <span class="badge badge-blue">Vercel + Next.js 16</span>
+    <span class="badge badge-purple">AWS DynamoDB</span>
+  </div>
+  <p class="tagline" style="margin-top:12px;">
+    This document shows the access patterns, the math, the known limits, and the mitigation path for each limit.<br>
+    We prefer honest ceilings over hand-waving.
+  </p>
+</div>
+
+<!-- ================================================================== -->
+<!-- ARCHITECTURE DIAGRAM                                               -->
+<!-- ================================================================== -->
+<div class="section diagram-section">
+  <h2>System Architecture</h2>
+
+  <svg viewBox="0 0 1100 720" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+      </marker>
+      <marker id="arrowhead-rev" markerWidth="8" markerHeight="6" refX="1" refY="3" orient="auto">
+        <polygon points="8 0, 0 3, 8 6" fill="#64748b"/>
+      </marker>
+    </defs>
+
+    <!-- CLIENTS -->
+    <rect class="box box-client" x="20" y="20" width="240" height="160"/>
+    <text class="section-label label-client" x="40" y="48">Clients</text>
+    <rect class="box-inner inner-client" x="40" y="62" width="200" height="46"/>
+    <text class="icon-text" x="56" y="92">&#x1F310;</text>
+    <text class="node-title" x="80" y="82">Browser</text>
+    <text class="node-sub" x="80" y="97">Play, Daily, Tournaments, Social</text>
+    <rect class="box-inner inner-client" x="40" y="118" width="200" height="46"/>
+    <text class="icon-text" x="56" y="148">&#x1F4BB;</text>
+    <text class="node-title" x="80" y="138">VS Code Extension</text>
+    <text class="node-sub" x="80" y="153">Practice mode, API token auth</text>
+
+    <!-- OAUTH -->
+    <rect class="box-inner" x="860" y="30" width="220" height="46" style="stroke: #6366f180;"/>
+    <text class="icon-text" x="876" y="60">&#x1F511;</text>
+    <text class="node-title" x="900" y="50">OAuth Providers</text>
+    <text class="node-sub" x="900" y="65">Google + GitHub via NextAuth v5</text>
+
+    <!-- VERCEL -->
+    <rect class="box box-vercel" x="310" y="20" width="500" height="175"/>
+    <text class="section-label label-vercel" x="330" y="48">Vercel &mdash; Global Edge</text>
+    <rect class="box-inner inner-vercel" x="330" y="62" width="220" height="56"/>
+    <text class="icon-text" x="346" y="92">&#x26A1;</text>
+    <text class="node-title" x="370" y="82">Next.js 16 App Router</text>
+    <text class="node-sub" x="370" y="97">SSR + API Routes + SSE Streams</text>
+    <rect class="box-inner inner-vercel" x="570" y="62" width="220" height="56"/>
+    <text class="icon-text" x="586" y="92">&#x1F916;</text>
+    <text class="node-title" x="610" y="82">Bot Engine</text>
+    <text class="node-sub" x="610" y="97">Lazy eval, seeded random, no servers</text>
+    <rect class="box-inner inner-vercel" x="330" y="128" width="460" height="52"/>
+    <text class="icon-text" x="346" y="158">&#x1F3AE;</text>
+    <text class="node-title" x="370" y="148">Game Logic</text>
+    <text class="node-sub" x="370" y="163">Matchmaking, Elo ranking, conditional writes, round advancement</text>
+
+    <!-- AWS -->
+    <rect class="box box-aws" x="20" y="260" width="620" height="440"/>
+    <text class="section-label label-aws" x="40" y="288">AWS &mdash; us-east-1 (replicas: eu-west-1, ap-southeast-1)</text>
+
+    <!-- DynamoDB -->
+    <rect class="box-inner inner-aws" x="40" y="305" width="580" height="130"/>
+    <text class="icon-text" x="56" y="335">&#x1F4BE;</text>
+    <text class="node-title" x="80" y="328">DynamoDB &mdash; bughunt-main</text>
+    <text class="node-sub" x="80" y="345">Single-table design &#x2022; On-demand capacity &#x2022; TTL cleanup &#x2022; Global Tables</text>
+    <rect rx="6" ry="6" x="55" y="358" width="90" height="30" fill="#1e293b" stroke="#f59e0b40" stroke-width="1"/>
+    <text class="node-sub" x="72" y="377" style="fill:#fbbf24; font-weight:600;">Users</text>
+    <rect rx="6" ry="6" x="155" y="358" width="90" height="30" fill="#1e293b" stroke="#f59e0b40" stroke-width="1"/>
+    <text class="node-sub" x="172" y="377" style="fill:#fbbf24; font-weight:600;">Games</text>
+    <rect rx="6" ry="6" x="255" y="358" width="90" height="30" fill="#1e293b" stroke="#f59e0b40" stroke-width="1"/>
+    <text class="node-sub" x="277" y="377" style="fill:#fbbf24; font-weight:600;">Bugs</text>
+    <rect rx="6" ry="6" x="355" y="358" width="110" height="30" fill="#1e293b" stroke="#f59e0b40" stroke-width="1"/>
+    <text class="node-sub" x="366" y="377" style="fill:#fbbf24; font-weight:600;">Leaderboard</text>
+    <rect rx="6" ry="6" x="475" y="358" width="130" height="30" fill="#1e293b" stroke="#f59e0b40" stroke-width="1"/>
+    <text class="node-sub" x="486" y="377" style="fill:#fbbf24; font-weight:600;">Social / Orgs</text>
+    <text class="node-sub" x="56" y="420">GSI1: active games by user &#x2022; GSI2: user by email</text>
+
+    <!-- Streams -->
+    <rect class="box-inner inner-aws" x="40" y="455" width="275" height="56"/>
+    <text class="icon-text" x="56" y="487">&#x1F4E1;</text>
+    <text class="node-title" x="80" y="478">DynamoDB Streams</text>
+    <text class="node-sub" x="80" y="494">Change capture on game resolution</text>
+
+    <!-- Lambda -->
+    <rect class="box-inner inner-aws" x="345" y="455" width="275" height="56"/>
+    <text class="icon-text" x="361" y="487">&#x03BB;</text>
+    <text class="node-title" x="385" y="478">Lambda: Leaderboard</text>
+    <text class="node-sub" x="385" y="494">Materializes RANK# rows, cursor guard</text>
+
+    <!-- Bedrock -->
+    <rect class="box-inner inner-aws" x="40" y="535" width="580" height="56"/>
+    <text class="icon-text" x="56" y="567">&#x1F9E0;</text>
+    <text class="node-title" x="80" y="558">Amazon Bedrock &mdash; Nova Lite</text>
+    <text class="node-sub" x="80" y="574">Bug quality scoring &#x2022; Bug generation &#x2022; Bot AI answers (2.5s budget)</text>
+
+    <!-- Conditional writes callout -->
+    <rect rx="8" ry="8" x="40" y="610" width="580" height="72" fill="#1a1a2e" stroke="#f59e0b30" stroke-width="1"/>
+    <text class="node-sub" x="56" y="632" style="fill:#fbbf24; font-weight:600;">Race-Safe Writes via ConditionExpressions</text>
+    <text class="node-sub" x="56" y="649">Double-submit &#x2192; no-op &#x2022; Double-resolve &#x2192; no-op &#x2022; Join race &#x2192; exactly-once</text>
+    <text class="node-sub" x="56" y="664">BUG#INDEX optimistic versioning with bounded retries &#x2022; Chat caps via atomic ADD</text>
+
+    <!-- REDIS + QSTASH -->
+    <rect class="box box-redis" x="680" y="260" width="400" height="310"/>
+    <text class="section-label label-redis" x="700" y="288">Upstash Redis + QStash</text>
+    <rect class="box-inner inner-redis" x="700" y="305" width="360" height="56"/>
+    <text class="icon-text" x="716" y="337">&#x1F3AF;</text>
+    <text class="node-title" x="740" y="328">Matchmaking Queue</text>
+    <text class="node-sub" x="740" y="345">Elo-bucketed sorted sets, atomic claim (ZREM)</text>
+    <rect class="box-inner inner-redis" x="700" y="373" width="170" height="50"/>
+    <text class="icon-text" x="716" y="403">&#x1F6E1;</text>
+    <text class="node-title" x="740" y="395">Rate Limits</text>
+    <text class="node-sub" x="740" y="410">Per-user sliding window</text>
+    <rect class="box-inner inner-redis" x="890" y="373" width="170" height="50"/>
+    <text class="icon-text" x="906" y="403">&#x1F4E2;</text>
+    <text class="node-title" x="930" y="395">Pub/Sub</text>
+    <text class="node-sub" x="930" y="410">Game events, SSE push</text>
+    <rect class="box-inner inner-redis" x="700" y="437" width="360" height="56"/>
+    <text class="icon-text" x="716" y="467">&#x23F0;</text>
+    <text class="node-title" x="740" y="460">QStash Cron Schedules</text>
+    <text class="node-sub" x="740" y="477">Daily challenge (00:00 UTC) &#x2022; Tournament tick (5min)</text>
+    <rect rx="8" ry="8" x="700" y="505" width="360" height="48" fill="#1a1a2e" stroke="#ef444430" stroke-width="1"/>
+    <text class="node-sub" x="716" y="525" style="fill:#f87171; font-weight:600;">Graceful Degradation</text>
+    <text class="node-sub" x="716" y="541">Redis down &#x2192; DynamoDB polling fallback, no data loss</text>
+
+    <!-- ARROWS -->
+    <line class="arrow arrow-data" x1="260" y1="85" x2="328" y2="85"/>
+    <line class="arrow arrow-data" x1="260" y1="141" x2="290" y2="141"/>
+    <line x1="290" y1="141" x2="290" y2="85" stroke="#475569" stroke-width="1.5" fill="none"/>
+    <line class="arrow arrow-data" x1="290" y1="85" x2="328" y2="85"/>
+    <line class="arrow arrow-data" x1="858" y1="53" x2="812" y2="53"/>
+    <path class="arrow arrow-data" d="M 812 53 L 792 53 L 792 85 L 812 85" fill="none"/>
+    <line class="arrow-bi arrow-data" x1="440" y1="197" x2="440" y2="303"/>
+    <line class="arrow-bi arrow-data" x1="750" y1="197" x2="750" y2="258"/>
+    <path class="arrow arrow-ai" d="M 680 197 L 680 230 L 660 230 L 660 563 L 622 563" fill="none"/>
+    <line class="arrow arrow-stream" x1="200" y1="438" x2="200" y2="453"/>
+    <line class="arrow arrow-stream" x1="317" y1="483" x2="343" y2="483"/>
+    <path class="arrow arrow-stream" d="M 600 455 L 610 455 L 610 370 L 607 370" fill="none"/>
+    <path class="arrow arrow-cron" d="M 880 437 L 880 220 L 560 220 L 560 197" fill="none"/>
+  </svg>
+</div>
+
+<!-- ================================================================== -->
+<!-- SYSTEM SHAPE                                                       -->
+<!-- ================================================================== -->
+<div class="section">
+  <h2>System Shape</h2>
+  <ul>
+    <li><strong>Vercel</strong> serves the Next.js 16 App Router globally (static/SSR at the edge, API routes as serverless functions). No servers, no WebSockets, no sticky state.</li>
+    <li><strong>DynamoDB single-table</strong> (<code>bughunt-main</code>, on-demand) is the source of truth: users, games, answers, bugs, daily challenges, tournaments, orgs, social graph, notifications, chat. TTL (<code>expiresAt</code>) reaps games/history after 90 days.</li>
+    <li><strong>DynamoDB Streams &rarr; Lambda</strong> materializes the leaderboard: <code>resolveGame</code> stamps Elo audit fields on the game META item <em>after</em> profiles are updated; the Lambda moves <code>RANK#&lt;paddedElo&gt;#&lt;userId&gt;</code> rows. Reads are a single Query, newest-Elo-first, <code>Limit: 100</code> &mdash; the leaderboard is <strong>never computed at read time</strong>.</li>
+    <li><strong>Upstash Redis</strong> holds only ephemeral coordination: Elo-bucketed matchmaking zsets, rate-limit counters, game-event pub/sub. Losing Redis loses no data &mdash; every consumer has a DynamoDB fallback.</li>
+    <li><strong>Bedrock Nova Lite</strong> does content work (community-bug quality gate, admin generation) and optionally <em>plays the game</em> as the bot opponent.</li>
+    <li><strong>Bots are serverless too:</strong> there is no bot process. The human&rsquo;s own requests drive <code>maybePlayBotRound()</code>; determinism comes from <code>sha256(gameId:round)</code> seeding, and conditional writes make concurrent drivers race-safe.</li>
+  </ul>
+</div>
+
+<!-- ================================================================== -->
+<!-- WHY DYNAMODB                                                       -->
+<!-- ================================================================== -->
+<div class="section">
+  <h2>Why DynamoDB (and not SQL) for This Workload</h2>
+  <p>Every hot-path access is a key lookup or a single-partition Query &mdash; no joins, no aggregations at read time:</p>
+  <table>
+    <thead>
+      <tr><th>Access Pattern</th><th>Key</th><th>Cost</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Load profile</td><td><code>USER#id</code> / <code>PROFILE</code></td><td>1 RCU</td></tr>
+      <tr><td>Active game for user</td><td>GSI1 <code>ACTIVE_GAME#userId</code></td><td>1 query</td></tr>
+      <tr><td>Game + my answers</td><td><code>GAME#id</code> / <code>META</code>, <code>PLAYER#uid</code></td><td>2 reads</td></tr>
+      <tr><td>Submit answer (race-safe)</td><td>Conditional update on <code>answers[i]</code></td><td>1 WCU</td></tr>
+      <tr><td>Resolve game (exactly once)</td><td>Conditional <code>status: active&rarr;completed</code></td><td>1 WCU</td></tr>
+      <tr><td>Top-100 leaderboard</td><td><code>LEADERBOARD#GLOBAL</code> Query desc, limit 100</td><td>1 query</td></tr>
+      <tr><td>Match history page</td><td><code>USER#id</code> / <code>HISTORY#&lt;ts&gt;</code> Query desc</td><td>1 query</td></tr>
+    </tbody>
+  </table>
+  <p>Writes are guarded by <code>ConditionExpression</code>s everywhere two requests can race (double-submit, double-resolve, join, chat caps, follow edges, tournament capacity, <code>BUG#INDEX</code> optimistic versioning with bounded retries).</p>
+</div>
+
+<!-- ================================================================== -->
+<!-- CAPACITY MATH                                                      -->
+<!-- ================================================================== -->
+<div class="section">
+  <h2>Capacity Math @ 1M DAU</h2>
+  <p>Assume 1M DAU &times; 5 games/day = 5M games/day &asymp; <strong>58 games/s average, ~290/s peak</strong> (5&times; burst factor).</p>
+  <table>
+    <thead>
+      <tr><th>Flow</th><th>Per-Game Cost</th><th>Peak</th><th>Verdict</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game writes</td>
+        <td>~12 writes across <code>GAME#uuid</code> / <code>USER#uuid</code></td>
+        <td>~3.5K WCU/s</td>
+        <td>UUID keys distribute uniformly; on-demand absorbs trivially</td>
+      </tr>
+      <tr>
+        <td>Matchmaking</td>
+        <td>O(log N) zadd/zrange/zrem per poll</td>
+        <td>~700 ops/s @ 2K concurrent</td>
+        <td>Redis comfortable; queue sharded by Elo band (~15 buckets)</td>
+      </tr>
+      <tr>
+        <td>Leaderboard reads</td>
+        <td>1 Query / 60s / warm instance</td>
+        <td>negligible</td>
+        <td>Landing page is effectively free (in-memory cache)</td>
+      </tr>
+      <tr>
+        <td>SSE</td>
+        <td>1 read / 2s / active game (fallback)</td>
+        <td>100K concurrent &rarr; ~50K reads/s</td>
+        <td>DynamoDB fine; real cost is function-hours</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================================================================== -->
+<!-- KNOWN LIMITS                                                       -->
+<!-- ================================================================== -->
+<div class="section">
+  <h2>Known Limits &amp; Mitigation Paths</h2>
+
+  <div class="limit-box">
+    <div class="limit-title">Limit 1 &mdash; Leaderboard Partition Write Rate</div>
+    <p>Every ranked resolve funnels up to 8 writes (2 players &times; 2 boards &times; delete+put) into the <code>LEADERBOARD#GLOBAL</code> partition. At ~1,000 WCU/partition/s, that caps at &asymp;125 resolves/s &mdash; roughly 0.4M DAU at 5&times; peak.</p>
+    <p style="margin-top:8px;"><strong>Mitigation:</strong> Lambda caches the top-100 cutoff Elo and skips writes for players below cutoff &minus; 50. At million scale &gt;99% of games involve no top-100 candidate, cutting partition traffic by two orders of magnitude. <strong>Fallback:</strong> shard boards by Elo band and fan-in the top query.</p>
+  </div>
+
+  <div class="limit-box">
+    <div class="limit-title">Limit 2 &mdash; BUG#INDEX Item Size</div>
+    <p>The bug catalog index is one item (~40B/id &rarr; ~10K bugs within the 400KB item cap; warn logs at 50%). Fine for a curated catalog.</p>
+    <p style="margin-top:8px;"><strong>Migration path:</strong> per-difficulty index items (the <code>byDifficulty</code> map is already the natural shard key) &mdash; five smaller items with the same optimistic-versioning write path.</p>
+  </div>
+
+  <div class="limit-box">
+    <div class="limit-title">Limit 3 &mdash; SSE on Serverless</div>
+    <p>Each active game holds a function open. When <code>REDIS_URL</code> is set, TCP pub/sub pushes events with a 10s safety poll, cutting per-game DynamoDB reads from 0.5/s to ~0.1/s. Without it, polling DynamoDB every 2s.</p>
+    <p style="margin-top:8px;"><strong>Either way:</strong> held-open functions are the costliest part dollar-wise (data-wise both modes scale). Final fallback is plain client polling &mdash; graceful degradation when both Redis modes are unavailable.</p>
+  </div>
+
+  <div class="limit-box">
+    <div class="limit-title">Limit 4 &mdash; Multi-Region Writes</div>
+    <p>Global Tables replicate <code>bughunt-main</code> to eu-west-1 and ap-southeast-1. Reads route to the nearest replica. Writes are pinned to us-east-1 while Vercel functions run single-region &mdash; flipping on multi-region functions makes writes local too.</p>
+    <p style="margin-top:8px;"><strong>Caveat we accept:</strong> DynamoDB conditional writes are evaluated per-region, so cross-region active-active would need region-pinned games (players matched through one global queue, so a game&rsquo;s writes naturally share a region).</p>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<!-- FAILURE-MODE DESIGN                                                -->
+<!-- ================================================================== -->
+<div class="section">
+  <h2>Failure-Mode Design</h2>
+
+  <div class="failure-box">
+    <p><strong>Redis down &rarr;</strong> matchmaking returns &ldquo;waiting&rdquo; (no crash), SSE falls back to DynamoDB polling, rate limiting fails open. No data loss.</p>
+  </div>
+  <div class="failure-box">
+    <p><strong>Lambda down &rarr;</strong> games still resolve and profiles still update; the leaderboard goes stale and self-heals when the stream resumes (24h retention), or <code>scripts/rebuild-leaderboard.ts</code> rematerializes it from profiles.</p>
+  </div>
+  <div class="failure-box">
+    <p><strong>Double-everything &rarr;</strong> (submit, resolve, join, rematch, bot turns) conditional writes make the second writer a no-op.</p>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<!-- FOOTER                                                             -->
+<!-- ================================================================== -->
+<div class="footer">
+  <p><strong>BugHunt</strong> &mdash; bughunt-beryl.vercel.app</p>
+  <p>Next.js 16 on Vercel &bull; DynamoDB single-table &bull; DynamoDB Streams + Lambda &bull; Upstash Redis &bull; Bedrock Nova</p>
+  <p style="margin-top:8px;">H0 Hackathon 2026 &mdash; Track 3: Million-Scale Global App</p>
+</div>
+
+</body>
+</html>

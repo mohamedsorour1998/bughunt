@@ -1,19 +1,102 @@
-# BugHunt — 3:00 demo script
+# BugHunt — Demo Video Script (< 3 minutes)
 
-Record at 1080p, dark theme, no dead air. Pre-stage: logged-in browser, second
-incognito window, DynamoDB console (Streams + Global tables tabs), VS Code
-with the extension installed, terminal with `aws dynamodb query` ready.
+**Required by H0 rules:**
+1. What problem your app solves, for whom, and why you chose this problem
+2. Footage of the working application
+3. Explain the AWS Database used (DynamoDB)
 
-| Time | Shot | Script |
-|---|---|---|
-| 0:00–0:12 | Landing page hero | "Every developer debugs. BugHunt makes it a sport. Two players, the same buggy code, 120 seconds — fastest accurate eye wins." |
-| 0:12–0:25 | Scroll to teaser, answer it live | "You don't even need an account to feel it — spot the bug, get the explanation. Now let's play for real." |
-| 0:25–0:50 | Click Find Match → 10s → bot match → DuelHeader | "Matchmaking runs on Elo-bucketed Redis queues. No humans near my rating right now — so after ten seconds, BugHunt summons a Nova bot at my level. No bot servers exist: my own requests power its turns." |
-| 0:50–1:25 | Play rounds 1–2, show pips + 'Opponent submitted!' + verdict flash | "Three rounds. Every submit is a DynamoDB conditional write — double-submits are physically impossible. The duel header streams my opponent's progress live." |
-| 1:25–1:45 | Round 3 → result page, rank-up chip, Elo, explanations | "Win, Elo, per-round breakdown with explanations — every bug teaches you something. Rematch and post-game chat are one click." |
-| 1:45–2:05 | Landing page leaderboard refresh + DynamoDB console Streams tab | "Here's the part database people will like: the leaderboard never aggregates at read time. Game resolution stamps Elo audit fields, DynamoDB Streams trigger a Lambda, and it moves my RANK row — materialized, idempotent, top-100 is one Query." |
-| 2:05–2:25 | Global tables tab + ARCHITECTURE.md capacity table | "Single table, on-demand, replicated to three regions. The architecture doc does the math at a million DAU — including the honest limits and their mitigation paths." |
-| 2:25–2:45 | Quick cuts: daily challenge, tournament bracket, org leaderboard, social feed, community submit w/ Nova QA | "Beyond 1v1: daily challenges, brackets, org leaderboards, a social layer, and community-submitted bugs that Bedrock Nova quality-screens before review." |
-| 2:45–3:00 | VS Code extension practicing a bug → end card | "It even lives in your editor. BugHunt — Next.js on Vercel, DynamoDB underneath, built to scale to everyone who's ever shipped a bug. Which is all of us." |
+**Pre-stage:**
+- Logged into https://bughunt-beryl.vercel.app
+- Set Vercel env: `BOT_MATCH_AFTER_MS=5000`, `BOT_THINK_MIN_MS=3000`, `BOT_THINK_SPAN_MS=4000`
+- Have DynamoDB console open (table view showing items)
+- Record at 1080p, dark theme
 
-End card: BugHunt logo · live URL · GitHub URL · "Vercel + AWS Databases — H0 Hackathon".
+---
+
+## Script
+
+### Opening — The Problem (0:00–0:20)
+
+**[Show: Landing page hero]**
+
+> "Debugging is the most important skill developers use every day — but there's no good way to practice it competitively. LeetCode tests algorithms. BugHunt tests the skill you actually use at work: reading someone else's code and finding what's wrong."
+
+> "BugHunt is a real-time competitive debugging game. Two players see the same buggy code, race to identify the bug, and earn Elo ratings — like chess, but for code review."
+
+### Live Demo — Playing a Game (0:20–1:20)
+
+**[Show: Click "Find Match" on play page]**
+
+> "Let's play. I click Find Match — behind the scenes, my Elo rating is pushed into a Redis matchmaking queue bucketed by skill level. No humans right now, so after five seconds BugHunt summons a bot opponent near my rating."
+
+**[Show: Bot match starts, DuelHeader appears with opponent info]**
+
+> "The bot isn't a separate server — it's pure lazy evaluation. My own polling requests check whether the bot's deterministic think delay has elapsed and write its answer if so. Zero infrastructure."
+
+**[Show: Read bug, select answer, submit. Show "Correct!" or "Not quite" flash. Show opponent submitted indicator.]**
+
+> "Three rounds, 120 seconds each. Every answer submission is a DynamoDB conditional write — if two requests hit simultaneously, the second is a clean no-op, never a corrupted game."
+
+**[Show: Rounds 2 and 3, fast cuts. Then result page with Elo change, per-round breakdown, explanations.]**
+
+> "Win or lose, you learn — every round shows the explanation and the fixed code. My Elo updates, and the leaderboard reflects it immediately."
+
+### DynamoDB Deep Dive (1:20–2:10)
+
+**[Show: DynamoDB console — table items view with sample items visible]**
+
+> "Everything runs on one DynamoDB table: users, games, answers, bugs, leaderboards, tournaments, social graph — all in a single-table design."
+
+> "Why DynamoDB? Every hot-path read is a key lookup or single-partition query. Loading my profile: one read. My active game: one GSI query. The top-100 leaderboard: one descending query. No joins, no aggregations at read time."
+
+**[Show: Architecture diagram (screenshot or HTML page)]**
+
+> "Game resolution stamps Elo fields onto the game item. DynamoDB Streams triggers a Lambda that moves materialized RANK rows — the leaderboard is *written*, never computed. At a million daily active users, that's 290 resolves per second at peak. On-demand capacity handles it without provisioning."
+
+> "All concurrent operations — double submits, simultaneous game resolution, tournament joins — are protected by ConditionExpressions. The loser of any race gets a clean no-op, never corruption."
+
+### Features Montage (2:10–2:40)
+
+**[Quick cuts, 3–4 seconds each:]**
+
+**[Show: Leaderboard page]**
+> "Global and seasonal leaderboards."
+
+**[Show: Daily challenge page]**
+> "Daily challenges with streaks."
+
+**[Show: Submit bug page]**
+> "Community-submitted bugs, quality-screened by Amazon Bedrock Nova."
+
+**[Show: Practice mode]**
+> "Solo practice mode to sharpen your skills."
+
+### Closing (2:40–2:55)
+
+**[Show: Landing page with live URL]**
+
+> "BugHunt — Next.js 16 on Vercel, DynamoDB underneath, built to scale to everyone who's ever shipped a bug. Which is all of us."
+
+> "Try it now at bughunt-beryl.vercel.app."
+
+**[End card: BugHunt logo, live URL, GitHub URL, "Vercel + AWS DynamoDB — H0 Hackathon"]**
+
+---
+
+## Timing breakdown
+
+| Section | Duration | Cumulative |
+|---------|----------|------------|
+| Opening — problem & audience | 20s | 0:20 |
+| Live demo — playing a game | 60s | 1:20 |
+| DynamoDB deep dive | 50s | 2:10 |
+| Features montage | 30s | 2:40 |
+| Closing | 15s | 2:55 |
+
+**Total: ~2:55** (under the 3:00 limit)
+
+## Recording tips
+- Use OBS or Loom, 1080p, capture browser tab audio off
+- Keep mouse movements deliberate, no frantic clicking
+- Cut dead time in editing (matchmaking wait, page loads)
+- Consider a subtle background music track (royalty-free, low volume)

@@ -25,4 +25,9 @@ Single-table design is a forcing function: you must know every access pattern up
 ## What's next
 Top-N write gating on the leaderboard Lambda, per-difficulty index sharding, multi-region writes once functions go multi-region, mobile PWA, language-specific ladders.
 
-**Links:** Live app · GitHub (public) · 3-min video · Architecture diagram · builder.aws blog post (#H0Hackathon)
+**Links:**
+- Live app: https://bughunt-beryl.vercel.app
+- GitHub: https://github.com/mohamedsorour1998/bughunt
+- Demo video: [YouTube link — upload from docs/demo-video-script.md]
+- Architecture diagram: docs/architecture-diagram.html (screenshot for Devpost)
+- Blog post: docs/hackathon-article.md (publish on dev.to or Medium with #H0Hackathon)
