@@ -361,7 +361,7 @@
     <rect class="box-inner inner-redis" x="700" y="305" width="360" height="56"/>
     <text class="icon-text" x="716" y="337">&#x1F3AF;</text>
     <text class="node-title" x="740" y="328">Matchmaking Queue</text>
-    <text class="node-sub" x="740" y="345">Elo-bucketed sorted sets, atomic claim (ZREM)</text>
+    <text class="node-sub" x="740" y="345">Human vs human first; bot fallback after 10s wait. Elo-bucketed sorted sets, atomic ZREM claim.</text>
     <rect class="box-inner inner-redis" x="700" y="373" width="170" height="50"/>
     <text class="icon-text" x="716" y="403">&#x1F6E1;</text>
     <text class="node-title" x="740" y="395">Rate Limits</text>
@@ -406,7 +406,7 @@
     <li><strong>DynamoDB Streams &rarr; Lambda</strong> materializes the leaderboard: <code>resolveGame</code> stamps Elo audit fields on the game META item <em>after</em> profiles are updated; the Lambda moves <code>RANK#&lt;paddedElo&gt;#&lt;userId&gt;</code> rows. Reads are a single Query, newest-Elo-first, <code>Limit: 100</code> &mdash; the leaderboard is <strong>never computed at read time</strong>.</li>
     <li><strong>Upstash Redis</strong> holds only ephemeral coordination: Elo-bucketed matchmaking zsets, rate-limit counters, game-event pub/sub. Losing Redis loses no data &mdash; every consumer has a DynamoDB fallback.</li>
     <li><strong>Bedrock Nova Lite</strong> does content work (community-bug quality gate, admin generation) and optionally <em>plays the game</em> as the bot opponent.</li>
-    <li><strong>Bots are serverless too:</strong> there is no bot process. The human&rsquo;s own requests drive <code>maybePlayBotRound()</code>; determinism comes from <code>sha256(gameId:round)</code> seeding, and conditional writes make concurrent drivers race-safe.</li>
+    <li><strong>Bots are serverless and secondary:</strong> the primary experience is human vs human. After 10 seconds in the queue with no compatible opponent, BugHunt creates a bot match. There is no bot process &mdash; the human&rsquo;s own requests drive <code>maybePlayBotRound()</code>; determinism comes from <code>sha256(gameId:round)</code> seeding, and conditional writes make concurrent drivers race-safe.</li>
   </ul>
 </div>
 

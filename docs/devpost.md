@@ -8,7 +8,7 @@
 Every developer has stared at code hunting a bug under time pressure. We made that feeling a competitive sport — because the skill is real, trainable, and weirdly fun head-to-head.
 
 ## What it does
-Ranked 1v1 debugging duels (3 rounds × 120s) with chess-style Elo and rank tiers; bot opponents powered by lazy serverless evaluation (optionally answered by Bedrock Nova) so there's always a match; daily challenges with streaks; bracketed tournaments; org/team leaderboards; a social layer (follow, feed, direct challenges); community bug submissions quality-screened by Nova; a VS Code extension; shareable result cards.
+Real-time human vs human debugging duels: two players see the same buggy code, race to identify the bug, earn Elo ratings like chess. Three rounds × 120s, fastest accurate answer wins. Redis Elo-bucketed matchmaking pairs you with a skill-matched human opponent; if no one is in range after 10 seconds, a serverless bot (optionally powered by Bedrock Nova) steps in so you're never stuck waiting. Also: daily challenges with streaks; bracketed tournaments; org/team leaderboards; a social layer (follow, feed, direct challenges); community bug submissions quality-screened by Nova; a VS Code extension; shareable result cards.
 
 ## How we built it
 Next.js 16 App Router on Vercel; one DynamoDB table (on-demand, TTL, 2 GSIs, Global Tables to 3 regions) as the source of truth; DynamoDB Streams → Lambda materializing the leaderboard as RANK# rows (top-100 = one Query); Upstash Redis for Elo-bucketed matchmaking queues, rate limits, and game-event pub/sub with DynamoDB-polling fallback; Bedrock Nova for content QA, generation, and bot play. 180+ tests (unit, API-against-real-DynamoDB, Playwright E2E) and a production artillery load test.
