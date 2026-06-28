@@ -2,7 +2,7 @@
 
 **Project name:** BugHunt
 
-**Elevator pitch (≤60 chars):** Chess.com for debugging — race rivals, earn Elo ratings.
+**Elevator pitch (≤200 chars):** Real-time 1v1 debugging duels: spot the bug before your opponent, earn Elo ratings, climb the global leaderboard. Built for 1M daily players on a single DynamoDB table — no servers, no limits.
 
 **Tagline (longer):** Chess.com for debugging at million-user scale — one DynamoDB table, 290 resolves/second, zero servers to manage.
 
