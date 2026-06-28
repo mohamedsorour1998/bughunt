@@ -1,6 +1,10 @@
 # Devpost submission — BugHunt
 
-**Tagline:** Chess.com for debugging at million-user scale — one DynamoDB table, 290 resolves/second, zero servers to manage.
+**Project name:** BugHunt
+
+**Elevator pitch (≤60 chars):** Chess.com for debugging — race rivals, earn Elo ratings.
+
+**Tagline (longer):** Chess.com for debugging at million-user scale — one DynamoDB table, 290 resolves/second, zero servers to manage.
 
 **Track:** 3 — Million-scale global app (gaming/social/entertainment)
 
