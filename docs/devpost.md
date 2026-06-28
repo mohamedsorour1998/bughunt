@@ -60,3 +60,38 @@ Next.js, TypeScript, React, Tailwind CSS, Vercel, Amazon DynamoDB, DynamoDB Stre
 ## Video demo link
 
 [YouTube link — record from docs/demo-video-script.md, upload as public, paste URL here]
+
+---
+
+## Additional info (judges only)
+
+**Submitter Type:** Individual
+
+**Country of Residence:** [your country]
+
+**App Status:** Existing — significantly modified during the Submission Period
+
+**If Existing, what was updated:**
+BugHunt's core gameplay existed before the hackathon, but the following were built or substantially reworked during the submission period: the full bot opponent system (serverless lazy evaluation via Bedrock Nova), DynamoDB Streams → Lambda leaderboard materializer, real-time SSE with Redis pub/sub and DynamoDB-polling fallback, tournament and org subsystems, social layer (follow/feed/challenges), VS Code extension, community bug submission pipeline with Bedrock quality gate, production load testing and the full million-DAU capacity analysis. The matchmaking system was also rearchitected to be resilient to Redis failures with graceful degradation.
+
+**Testing Instructions for Judges:**
+1. Visit https://bughunt-beryl.vercel.app
+2. Sign in with Google or GitHub (free, no data stored beyond your name/avatar)
+3. Click **Play** → **Find Match** — you will be matched with a human opponent or a bot within ~10 seconds
+4. Complete a 3-round game; result page shows Elo change and per-round explanation
+5. Visit **Daily** for today's solo challenge, **Leaderboard** for the global ranking, **Practice** for unlimited solo mode
+6. To test without signing in: use the **Practice** mode (no auth required)
+
+**Which Track:** Track 3 — Million-scale global app (gaming / social / entertainment)
+
+**Published Vercel/v0 Link:** https://bughunt-beryl.vercel.app
+
+**Vercel Team ID:** [go to vercel.com → select your team → Settings → General → scroll to "Team ID" → copy `team_xxxxx`]
+
+**Which database:** Amazon DynamoDB
+
+**Architecture diagram:** export `docs/architecture-diagram.html` → open in Chrome → Ctrl+P → Save as PDF → upload here (or screenshot as PNG)
+
+**AWS database screenshot:** open https://console.aws.amazon.com/dynamodb → Tables → bughunt-main → screenshot showing table name, item count, and on-demand billing mode → upload here
+
+**Bonus Points URL:** [paste your dev.to or Medium article URL once published — article already contains "created for the purposes of entering the H0 Hackathon" and #H0Hackathon]
