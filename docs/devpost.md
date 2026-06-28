@@ -8,32 +8,55 @@
 
 **Track:** 3 — Million-scale global app (gaming/social/entertainment)
 
+## About the project (Devpost "Project Story" field — paste as Markdown)
+
 ## Inspiration
-Every developer has stared at code hunting a bug under time pressure. We made that feeling a competitive sport — because the skill is real, trainable, and weirdly fun head-to-head.
+Every developer debugs. It's the skill you use more than any algorithm — reading unfamiliar code, spotting what's wrong, fixing it under pressure. Yet there's no competitive platform for it. LeetCode tests algorithms. HackerRank tests data structures. Nothing tests the skill you actually use at 2am in production. We made that feeling a competitive sport.
 
 ## What it does
-BugHunt is a real-time 1v1 competitive debugging game designed to scale to millions of concurrent players on a single DynamoDB table with no dedicated servers. Two players are matched by Elo rating through a Redis sorted-set queue, see the same buggy code snippet, and race to identify the bug in three 120-second rounds — fastest accurate answer wins. Every write is protected by a DynamoDB ConditionExpression so double-submits, double-resolves, and simultaneous joins are all clean no-ops at any traffic level.
+Real-time human vs human debugging duels: two players are matched by Elo rating through a Redis sorted-set queue, see the same buggy code snippet, and race to identify the bug in three 120-second rounds — fastest accurate answer wins. Every write is protected by a DynamoDB ConditionExpression so double-submits, double-resolves, and simultaneous joins are clean no-ops at any traffic level.
 
-Beyond the core duel: chess-style Elo ratings and rank tiers; a DynamoDB Streams → Lambda leaderboard that is written not computed (constant-time reads at any user count); daily challenges with streaks; bracketed tournaments; org/team leaderboards; a social layer (follow, feed, direct challenges); community bug submissions quality-screened by Bedrock Nova; a VS Code extension; shareable result cards. When no human opponent is available after 10 seconds, a serverless bot (no process — driven by the human's own requests) fills the slot.
+Beyond the core duel: chess-style Elo ratings and rank tiers; a DynamoDB Streams → Lambda leaderboard that is *written not computed* (constant-time reads at any user count); daily challenges with streaks; bracketed tournaments; org/team leaderboards; a social layer (follow, feed, direct challenges); community bug submissions quality-screened by Bedrock Nova; a VS Code extension; shareable result cards. When no human is available after 10 seconds, a serverless bot fills the slot.
 
 ## How we built it
-Next.js 16 App Router on Vercel; one DynamoDB table (on-demand, TTL, 2 GSIs, Global Tables to 3 regions) as the source of truth; DynamoDB Streams → Lambda materializing the leaderboard as RANK# rows (top-100 = one Query); Upstash Redis for Elo-bucketed matchmaking queues, rate limits, and game-event pub/sub with DynamoDB-polling fallback; Bedrock Nova for content QA, generation, and bot play. 180+ tests (unit, API-against-real-DynamoDB, Playwright E2E) and a production artillery load test.
+Next.js 16 App Router on Vercel — stateless serverless functions, no servers to provision or patch. One DynamoDB table (`bughunt-main`, on-demand, Global Tables → 3 regions) holds every entity: users, games, answers, bugs, tournaments, orgs, social graph, notifications, chat. At 1M DAU × 5 games/day that's ~290 resolves/second at peak (~3,500 WCU/s) — absorbed by on-demand capacity with uniform UUID partition distribution.
+
+DynamoDB Streams → Lambda materializes the leaderboard: game resolution stamps Elo audit fields onto the game item, the Lambda moves `RANK#<paddedElo>#<userId>` rows, and top-100 reads are a single descending Query with `Limit: 100`. Constant time regardless of user count.
+
+Upstash Redis handles ephemeral coordination: Elo-bucketed matchmaking sorted sets, rate-limit counters, game-event pub/sub with DynamoDB-polling fallback. Bedrock Nova Lite quality-screens community bug submissions and optionally plays as bot opponent. 180+ tests (unit, API against real DynamoDB, Playwright E2E).
 
 ## Challenges
-Multiplayer on serverless is a pile of races: double-submits, double-resolution, rematch races, queue claim races. We settled every one with DynamoDB ConditionExpressions (and one optimistic-versioned index with bounded retries) rather than locks — the loser of any race gets a clean no-op. The second challenge was real-time without WebSockets: SSE with layered fallbacks (TCP pub/sub → DynamoDB polling → client polling).
+Multiplayer on serverless is a pile of race conditions: double-submits, double-resolution, rematch races, queue claim races, tournament slot conflicts. We settled every one with DynamoDB ConditionExpressions — the loser of any race gets a clean no-op, never corruption. No locks, no transactions.
+
+Real-time without WebSockets: Vercel serverless functions can't hold persistent connections. Solution: SSE with layered fallbacks — TCP Redis pub/sub (instant push) → 10s DynamoDB safety poll → client polling every 3s. The game works even if Redis is completely down.
 
 ## Accomplishments
-Designed and load-tested for 1M DAU: 58 games/s average, ~290/s peak, ~3,500 WCU/s across DynamoDB — absorbed by on-demand capacity with uniform UUID partition distribution. A leaderboard that is written, never computed (constant-time reads regardless of user count). Every race condition in a multiplayer game solved with ConditionExpressions rather than locks. Honest capacity math — including four known limits and concrete mitigations — published in the repo.
+- ~290 resolves/second peak capacity on a single DynamoDB table with zero provisioned capacity
+- Leaderboard written, never computed — constant-time reads at any user count
+- Every race condition resolved with ConditionExpressions, not locks
+- Honest capacity math published in the repo: four known limits with concrete mitigation paths
 
 ## What we learned
-Single-table design is a forcing function: you must know every access pattern up front. On-demand mode makes 95% of scale free; the engineering is in the other 5% (hot partitions, item ceilings, held-open functions).
+Single-table design is a forcing function: you must know every access pattern before writing a line of code. That sounds painful, but it means your data model serves your app perfectly — no ORM surprises, no N+1 queries, no migration headaches. On-demand DynamoDB makes 95% of scale free; the engineering is in the other 5%: hot partitions, item-size ceilings, held-open serverless functions.
 
 ## What's next
 Top-N write gating on the leaderboard Lambda, per-difficulty index sharding, multi-region writes once functions go multi-region, mobile PWA, language-specific ladders.
 
-**Links:**
-- Live app: https://bughunt-beryl.vercel.app
-- GitHub: https://github.com/mohamedsorour1998/bughunt
-- Demo video: [YouTube link — upload from docs/demo-video-script.md]
-- Architecture diagram: docs/architecture-diagram.html (screenshot for Devpost)
-- Blog post: docs/hackathon-article.md (publish on dev.to or Medium with #H0Hackathon)
+---
+
+## Built with (tag each one separately in the Devpost field)
+
+Next.js, TypeScript, React, Tailwind CSS, Vercel, Amazon DynamoDB, DynamoDB Streams, AWS Lambda, Amazon Bedrock Nova, Upstash Redis, Upstash QStash, NextAuth.js, Playwright, Node.js
+
+---
+
+## "Try it out" links
+
+- https://bughunt-beryl.vercel.app
+- https://github.com/mohamedsorour1998/bughunt
+
+---
+
+## Video demo link
+
+[YouTube link — record from docs/demo-video-script.md, upload as public, paste URL here]
