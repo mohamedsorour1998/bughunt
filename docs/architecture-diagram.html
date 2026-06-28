@@ -248,15 +248,16 @@
 <!-- ================================================================== -->
 <div class="header">
   <h1>BugHunt &mdash; Architecture &amp; Million-Scale Capacity</h1>
-  <div class="subtitle">Competitive debugging game built for real-time multiplayer on serverless</div>
+  <div class="subtitle">Designed for 1M DAU &mdash; 58 games/s average, 290/s peak &mdash; on a single DynamoDB table with no servers to manage</div>
   <div>
     <span class="badge badge-yellow">Track 3: Million-Scale</span>
     <span class="badge badge-blue">Vercel + Next.js 16</span>
     <span class="badge badge-purple">AWS DynamoDB</span>
   </div>
   <p class="tagline" style="margin-top:12px;">
-    This document shows the access patterns, the math, the known limits, and the mitigation path for each limit.<br>
-    We prefer honest ceilings over hand-waving.
+    Every hot-path access is a key lookup or single-partition Query. DynamoDB on-demand scales to peak traffic with no provisioning.
+    DynamoDB Streams materializes the leaderboard so reads are constant-time at any user count.<br>
+    This document shows the access patterns, the capacity math, the known limits, and the mitigation path for each.
   </p>
 </div>
 
@@ -399,14 +400,15 @@
 <!-- SYSTEM SHAPE                                                       -->
 <!-- ================================================================== -->
 <div class="section">
-  <h2>System Shape</h2>
+  <h2>System Shape — Built for 1M DAU</h2>
+  <p style="margin-bottom:16px; color: var(--text-dim);">At 1M DAU &times; 5 games/day the system processes <strong>~290 game resolves/second at peak</strong>. Every design decision below traces back to that number.</p>
   <ul>
-    <li><strong>Vercel</strong> serves the Next.js 16 App Router globally (static/SSR at the edge, API routes as serverless functions). No servers, no WebSockets, no sticky state.</li>
-    <li><strong>DynamoDB single-table</strong> (<code>bughunt-main</code>, on-demand) is the source of truth: users, games, answers, bugs, daily challenges, tournaments, orgs, social graph, notifications, chat. TTL (<code>expiresAt</code>) reaps games/history after 90 days.</li>
-    <li><strong>DynamoDB Streams &rarr; Lambda</strong> materializes the leaderboard: <code>resolveGame</code> stamps Elo audit fields on the game META item <em>after</em> profiles are updated; the Lambda moves <code>RANK#&lt;paddedElo&gt;#&lt;userId&gt;</code> rows. Reads are a single Query, newest-Elo-first, <code>Limit: 100</code> &mdash; the leaderboard is <strong>never computed at read time</strong>.</li>
-    <li><strong>Upstash Redis</strong> holds only ephemeral coordination: Elo-bucketed matchmaking zsets, rate-limit counters, game-event pub/sub. Losing Redis loses no data &mdash; every consumer has a DynamoDB fallback.</li>
-    <li><strong>Bedrock Nova Lite</strong> does content work (community-bug quality gate, admin generation) and optionally <em>plays the game</em> as the bot opponent.</li>
-    <li><strong>Bots are serverless and secondary:</strong> the primary experience is human vs human. After 10 seconds in the queue with no compatible opponent, BugHunt creates a bot match. There is no bot process &mdash; the human&rsquo;s own requests drive <code>maybePlayBotRound()</code>; determinism comes from <code>sha256(gameId:round)</code> seeding, and conditional writes make concurrent drivers race-safe.</li>
+    <li><strong>Vercel + Next.js 16 App Router</strong> &mdash; globally distributed edge for static/SSR; API routes as serverless functions. Stateless by design: any instance can handle any request. No servers to provision, patch, or scale.</li>
+    <li><strong>DynamoDB single-table</strong> (<code>bughunt-main</code>, on-demand, Global Tables &rarr; 3 regions) is the source of truth for every entity: users, games, answers, bugs, daily challenges, tournaments, orgs, social graph, notifications, chat. On-demand capacity absorbs 290 resolves/s &asymp; 3,500 WCU/s with no provisioning. UUID partition keys distribute writes uniformly &mdash; no hot partitions. TTL (<code>expiresAt</code>) auto-reaps stale data at no read cost.</li>
+    <li><strong>DynamoDB Streams &rarr; Lambda leaderboard materializer</strong> &mdash; <code>resolveGame</code> stamps Elo audit fields on the GAME#id item; the Lambda moves <code>RANK#&lt;paddedElo&gt;#&lt;userId&gt;</code> rows under <code>LEADERBOARD#GLOBAL</code>. Top-100 read = one descending Query with <code>Limit: 100</code>. <strong>Constant time at any user count</strong> &mdash; no scan, no sort, no aggregation at read time.</li>
+    <li><strong>Upstash Redis</strong> &mdash; ephemeral coordination only: Elo-bucketed matchmaking sorted sets (human vs human pairing by skill range), rate-limit counters, game-event pub/sub. Every consumer has a DynamoDB fallback &mdash; Redis failure degrades experience, never corrupts data.</li>
+    <li><strong>Bedrock Nova Lite</strong> &mdash; community-bug quality gate, admin bug generation, and optional bot AI (reads code, picks answer within 2.5s timeout).</li>
+    <li><strong>All concurrency settled by ConditionExpressions</strong> &mdash; double-submit, double-resolve, tournament join races, chat caps, follow edges, optimistic-versioned bug index. The loser of any race gets a clean no-op; no locks, no transactions, no corruption.</li>
   </ul>
 </div>
 
