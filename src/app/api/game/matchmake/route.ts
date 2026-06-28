@@ -29,18 +29,8 @@ async function handleMatchmake(req: Request) {
 
   const userId = session.user.id
 
-  // Rate limit: 10 matchmake calls per minute (skip gracefully if Redis is unavailable)
-  let allowed = true
-  try {
-    allowed = await rateLimitCheck(userId, "matchmake", 10, 60)
-  } catch (err) {
-    console.error("[matchmake] rateLimitCheck failed:", err)
-  }
-  if (!allowed) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
-  }
-
-  // Check if user already has an active/waiting game
+  // Check if user already has an active/waiting game — do this BEFORE consuming
+  // rate-limit quota so that status polls on an in-progress game are free.
   const activeGame = await getActiveGameForUser(userId)
   if (activeGame) {
     // If still waiting, ensure we're in the Redis queue so opponents can find us
@@ -49,6 +39,19 @@ async function handleMatchmake(req: Request) {
       if (userProfile) await enqueuePlayer(userId, userProfile.elo).catch(() => {})
     }
     return NextResponse.json({ gameId: activeGame.gameId, status: activeGame.status })
+  }
+
+  // Rate limit: 25 matchmake calls per minute. Polling every 3s = 20 req/min max,
+  // so 25 gives headroom. Applied after the active-game check so in-progress game
+  // polls don't consume quota. Fails open if Redis is unavailable.
+  let allowed = true
+  try {
+    allowed = await rateLimitCheck(userId, "matchmake", 25, 60)
+  } catch (err) {
+    console.error("[matchmake] rateLimitCheck failed:", err)
+  }
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   }
 
   const userProfile = await getUser(userId)
