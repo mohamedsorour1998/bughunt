@@ -172,6 +172,9 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
     if (gid) {
       const g = await getGame(gid)
       if (g && g.status === "active") return g
+      // Self-healing: ACTIVE_PLAYER item points to a completed/missing game.
+      // Delete it asynchronously so it stops appearing in the GSI.
+      deleteItem(tracking.pk as string, tracking.sk as string).catch(() => {})
     }
   }
 
@@ -182,6 +185,17 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
     if (item.sk === "META") {
       const g = itemToGame(item)
       if (g.status !== "completed") return g
+      // Self-healing: completed META item still has gsi1pk set (resolveGame failed
+      // to clean it up). Remove it asynchronously so it doesn't resurface.
+      ddb
+        .send(
+          new UpdateCommand({
+            TableName: TABLE_NAME,
+            Key: { pk: item.pk, sk: item.sk },
+            UpdateExpression: "REMOVE gsi1pk, gsi1sk",
+          })
+        )
+        .catch(() => {})
     }
   }
 
