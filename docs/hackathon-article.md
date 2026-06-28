@@ -71,6 +71,12 @@ BugHunt's leaderboard is **written, never read-computed**. Here's how:
 
 The zero-padding trick (`001262` for Elo 1262) turns DynamoDB's lexicographic sort key ordering into a numeric ranking. A per-user cursor row keyed by monotonic `gamesPlayed` count guards against cross-shard event reordering — even if two games for the same player arrive out of order, the cursor ensures the latest Elo always wins.
 
+## Real Multiplayer: Elo-Bucketed Matchmaking
+
+When you click Find Match, BugHunt pushes your Elo rating into a Redis sorted set bucketed by skill range. The next player in a compatible Elo band atomically claims the match — a `ZREM` that returns `> 0` is the only valid claim; two concurrent callers can't both grab the same opponent. The winner creates a game in DynamoDB with a conditional write, and both clients get their game ID back within milliseconds. If the `ZREM` wins but the game creation later fails (no bugs available, conditional conflict), the claimed opponent is re-enqueued — no one gets silently dropped.
+
+This is the primary experience: humans racing humans at similar skill levels. Bots only enter when you've waited more than ten seconds with no human in range.
+
 ## Bots Without Servers
 
 Hackathon demos die on empty matchmaking queues. But running a bot server defeats the "zero servers" architecture. BugHunt's bots have **no process at all**.
