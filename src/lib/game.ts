@@ -185,12 +185,16 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
     }
   }
 
-  // Last resort: derive gameId from the first GSI item
+  // Last resort: derive gameId from the first GSI item.
+  // Still gate on status — a stale ACTIVE_PLAYER item for a completed game must
+  // not block matchmaking the same way the META fallback above avoids it.
   const fallback = items[0]
   const gameId = (fallback.gsi1sk as string) ?? (fallback.gameId as string)
   if (!gameId) return null
 
-  return getGame(gameId)
+  const g = await getGame(gameId)
+  if (!g || g.status === "completed") return null
+  return g
 }
 
 // ---------------------------------------------------------------------------
