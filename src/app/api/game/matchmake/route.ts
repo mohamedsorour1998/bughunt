@@ -131,7 +131,10 @@ async function handleMatchmake(req: Request) {
 
   // Bot fallback: if we've waited long enough, summon a Nova bot near our Elo.
   const botAfterMs = Number(process.env.BOT_MATCH_AFTER_MS ?? 10_000)
-  const waitedMs = joinedAt != null ? Date.now() - joinedAt : 0
+  // If Redis is unavailable (joinedAt null), human matchmaking is also unavailable —
+  // treat as "waited long enough" so the bot path fires immediately rather than
+  // leaving the user stuck in a waiting state with no path out.
+  const waitedMs = joinedAt != null ? Date.now() - joinedAt : botAfterMs
 
   if (waitedMs >= botAfterMs) {
     const bot = pickBotForElo(elo)

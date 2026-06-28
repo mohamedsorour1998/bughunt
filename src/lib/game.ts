@@ -175,10 +175,13 @@ export async function getActiveGameForUser(userId: string): Promise<Game | null>
     }
   }
 
-  // Fall back to the META item (this user is player1 in a waiting or active game)
+  // Fall back to the META item (this user is player1 in a waiting or active game).
+  // Exclude completed games — resolveGame removes gsi1pk/gsi1sk, but GSI propagation
+  // is eventual, so a just-completed game may still appear here for a few seconds.
   for (const item of items) {
     if (item.sk === "META") {
-      return itemToGame(item)
+      const g = itemToGame(item)
+      if (g.status !== "completed") return g
     }
   }
 
